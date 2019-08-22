@@ -11,6 +11,8 @@ setup(
     packages=find_packages(),
     install_requires=[
         'click',
+        'ffmpeg-python',
+        'numpy',
     ],
 
     entry_points="""
