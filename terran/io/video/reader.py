@@ -45,8 +45,11 @@ def ffmpeg_probe(filename, **kwargs):
 
 
 def parse_timestamp(timestamp):
-    timestamp, miliseconds = timestamp.split('.')
-    miliseconds = float('0.{}'.format(miliseconds))
+    if '.' in timestamp:
+        timestamp, miliseconds = timestamp.split('.')
+        miliseconds = float('0.{}'.format(miliseconds))
+    else:
+        miliseconds = 0.0
     hours, minutes, seconds = map(float, timestamp.split(':'))
     time = hours * 60 * 60 + minutes * 60 + seconds + miliseconds
     return time
@@ -248,7 +251,7 @@ class Video:
         elif 'duration' in probe.get('format', {}):
             self.source_duration = float(probe['format']['duration'])
 
-        if self.duration < 0:
+        if self.duration is not None and self.duration < 0:
             raise ValueError(
                 'Duration of the video is negative. Is the `start_time` '
                 'timestamp after the video ends?'
