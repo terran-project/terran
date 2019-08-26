@@ -46,10 +46,10 @@ def extract_features(faces):
 
     model = _get_face_recognition_model()
 
-    features = []
+    preprocessed = []
     for face in faces:
-        preprocessed = model.get_input(face)
-        if preprocessed is None:
+        curr_preprocessed = model.get_input(face)
+        if curr_preprocessed is None:
             # MTCNN preprocessing failed, do it manually: resize image to
             # `IMAGE_SIZExIMAGE_SIZE` and add padding around it.
             face = Image.fromarray(face)
@@ -64,17 +64,16 @@ def extract_features(faces):
             y_min = int((IMAGE_SIZE - face.size[1]) / 2)
             y_max = int((IMAGE_SIZE - face.size[1]) / 2) + face.size[1]
 
-            preprocessed = np.zeros(
+            curr_preprocessed = np.zeros(
                 (3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.uint8
             )
-            preprocessed[:, y_min:y_max, x_min:x_max] = (
+            curr_preprocessed[:, y_min:y_max, x_min:x_max] = (
                 np.asarray(face).transpose([2, 0, 1])[::-1, ...]
             )
 
-        features.append(
-            model.get_feature(preprocessed)
-        )
+        preprocessed.append(curr_preprocessed)
 
-    features = np.stack(features, axis=0)
+    preps = np.stack(preprocessed, axis=0)
+    features = model.get_feature(preps)
 
     return features[0] if expanded else features

@@ -78,12 +78,8 @@ def get_model(model_path, ctx, image_size, layer, batch_size=1):
         data_shapes=[
             ('data', (batch_size, 3, image_size[0], image_size[1]))
         ],
-        # label_shapes=[
-        #     ('softmax_label', (batch_size,))
-        # ]
     )
 
-    # model.bind(data_shapes=[('data', (1, 3, image_size[0], image_size[1]))])
     model.set_params(arg_params, aux_params)
 
     return model
@@ -151,17 +147,23 @@ class FaceModel:
 
         return aligned
 
-    def get_feature(self, image):
-        image = np.expand_dims(image, axis=0)
+    def get_feature(self, images):
+        expanded = False
+        if len(images.shape) == 3:
+            expanded = True
+            images = np.expand_dims(images, axis=0)
 
         self.model.forward(
             mx.io.DataBatch(data=(
-                mx.nd.array(image),
+                mx.nd.array(images),
             )),
             is_train=False
         )
 
-        embedding = self.model.get_outputs()[0].asnumpy()
-        embedding = normalize(embedding).flatten()
+        features = self.model.get_outputs()[0].asnumpy()
+        features = normalize(features, axis=1)
 
-        return embedding
+        if expanded:
+            features = features.flatten()
+
+        return features
