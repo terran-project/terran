@@ -1,8 +1,41 @@
+import numpy as np
 import mxnet as mx
 import torch
 import torch.nn as nn
 
 from itertools import chain
+from PIL import Image
+
+
+def similar_enough(arr1, arr2, thr=1e-5):
+    # Percentage of differences below threshold.
+    return len(
+        np.flatnonzero(np.abs(arr1 - arr2) < thr)
+    ) / np.prod(arr1.shape)
+
+
+def mx_eval_at_symbol(path, layer, arr):
+    sym, arg_params, aux_params = mx.model.load_checkpoint(path, 0)
+
+    output = sym.get_internals()[layer]
+
+    arr = arr.transpose([0, 3, 1, 2])
+
+    model = mx.mod.Module(symbol=output, context=mx.cpu(), label_names=None)
+    model.bind(data_shapes=[("data", arr.shape)], for_training=False)
+    model.set_params(arg_params, aux_params)
+
+    model.forward(
+        mx.io.DataBatch(
+            data=(mx.ndarray.array(arr),),
+            provide_data=['data', arr.shape]
+        ),
+        is_train=False
+    )
+
+    out = model.get_outputs()[0]
+
+    return out
 
 
 def _load_from_mxnet(path):
@@ -16,6 +49,9 @@ def _load_from_mxnet(path):
         'running_var': 'running_var',
         'moving_var': 'running_var',
     }
+
+    max_len = max([len(p) for p in chain(arg_params, aux_params)])
+    translations = []
 
     state_dict = {}
     for key, value in chain(arg_params.items(), aux_params.items()):
@@ -65,9 +101,11 @@ def _load_from_mxnet(path):
                 f'.{weight_type}'
             )
 
-        max_len = max([len(p) for p in chain(arg_params, aux_params)])
-        print(f'{key:>{max_len}} >> {new_key}')
+        translations.append(f'{key:>{max_len}} >> {new_key}')
         state_dict[new_key] = value
+
+    for line in sorted(translations):
+        print(line)
 
     return state_dict
 
@@ -126,7 +164,7 @@ class BaseNetwork(nn.Module):
                 ConvBlock(32, 32, stride=2),
 
                 ConvBlock(32, 64),
-                ConvBlock(64, 64, stride=2),  # relu10
+                ConvBlock(64, 64, stride=2),  # relu10, relu11
             ),
 
             nn.Sequential(
@@ -135,7 +173,7 @@ class BaseNetwork(nn.Module):
                 ConvBlock(128, 128),
                 ConvBlock(128, 128),
                 ConvBlock(128, 128),
-                ConvBlock(128, 128, stride=2),  # relu22
+                ConvBlock(128, 128, stride=2),  # relu22, relu23
             ),
         ])
 
