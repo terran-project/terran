@@ -48,17 +48,25 @@ def _load_from_mxnet(path):
             new_key = (
                 f'first_conv_block.{eq_num}.{weight_type}'
             )
+        elif block_num in [24, 25]:
+            new_key = (
+                f'final_conv.0.{eq_type}_block.{seq_num}.{weight_type}'
+            )
         elif block_num == 26:
+            seq_num += 1
             new_key = (
                 f'final_conv.{seq_num}.{weight_type}'
             )
         else:
+            first_num = min(int(eq_num / 5), 1)
+            second_num = eq_num if first_num == 0 else eq_num - 5
             new_key = (
-                f'blocks.{eq_num}.{eq_type}_block.{seq_num}.{weight_type}'
+                f'scales.{first_num}.{second_num}.{eq_type}_block.{seq_num}'
+                f'.{weight_type}'
             )
 
-        # max_len = max([len(p) for p in chain(arg_params, aux_params)])
-        # print(f'{key:>{max_len}} >> {new_key}')
+        max_len = max([len(p) for p in chain(arg_params, aux_params)])
+        print(f'{key:>{max_len}} >> {new_key}')
         state_dict[new_key] = value
 
     return state_dict
@@ -107,33 +115,46 @@ class BaseNetwork(nn.Module):
             nn.ReLU(),
         )
 
-        self.blocks = nn.Sequential(
-            ConvBlock(8, 16, stride=2),
+        # We're going to extract intermediate feature maps at downsampling
+        # ratios of 8 and 16, so we group the outputs in a way that we can
+        # retrieve them easily enough on the `forward` pass.
+        self.scales = nn.ModuleList([
+            nn.Sequential(
+                ConvBlock(8, 16, stride=2),
 
-            ConvBlock(16, 32),
-            ConvBlock(32, 32, stride=2),
+                ConvBlock(16, 32),
+                ConvBlock(32, 32, stride=2),
 
-            ConvBlock(32, 64),
-            ConvBlock(64, 64, stride=2),
+                ConvBlock(32, 64),
+                ConvBlock(64, 64, stride=2),  # relu10
+            ),
 
-            ConvBlock(64, 128),
-            ConvBlock(128, 128),
-            ConvBlock(128, 128),
-            ConvBlock(128, 128),
-            ConvBlock(128, 128),
-            ConvBlock(128, 128, stride=2),
-
-            ConvBlock(128, 256),
-        )
+            nn.Sequential(
+                ConvBlock(64, 128),
+                ConvBlock(128, 128),
+                ConvBlock(128, 128),
+                ConvBlock(128, 128),
+                ConvBlock(128, 128),
+                ConvBlock(128, 128, stride=2),  # relu22
+            ),
+        ])
 
         self.final_conv = nn.Sequential(
+            ConvBlock(128, 256),
             nn.Conv2d(256, 256, 1, bias=False),
             nn.BatchNorm2d(256, momentum=0.9),
             nn.ReLU(),
-        )
+        )  # relu26
 
     def forward(self, x):
         out = self.first_conv_block(x)
-        out = self.blocks(out)
+
+        feature_maps = []
+        for scale in self.scales:
+            out = scale(out)
+            feature_maps.append(out)
+
         out = self.final_conv(out)
-        return out
+        feature_maps.append(out)
+
+        return feature_maps
