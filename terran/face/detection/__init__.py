@@ -8,6 +8,111 @@ from itertools import chain
 from PIL import Image
 
 
+BASE_MAPPING = {
+    'rf_c1_aggr_bias': 'aggr_stride8.0.bias',
+    'rf_c1_aggr_weight': 'aggr_stride8.0.weight',
+    'rf_c1_aggr_bn_beta': 'aggr_stride8.1.bias',
+    'rf_c1_aggr_bn_gamma': 'aggr_stride8.1.weight',
+    'rf_c1_aggr_bn_moving_mean': 'aggr_stride8.1.running_mean',
+    'rf_c1_aggr_bn_moving_var': 'aggr_stride8.1.running_var',
+
+    'rf_c1_red_conv_bias': 'conv_stride8.0.bias',
+    'rf_c1_red_conv_weight': 'conv_stride8.0.weight',
+    'rf_c1_red_conv_bn_beta': 'conv_stride8.1.bias',
+    'rf_c1_red_conv_bn_gamma': 'conv_stride8.1.weight',
+    'rf_c1_red_conv_bn_moving_mean': 'conv_stride8.1.running_mean',
+    'rf_c1_red_conv_bn_moving_var': 'conv_stride8.1.running_var',
+
+    'rf_c2_aggr_bias': 'aggr_stride16.0.bias',
+    'rf_c2_aggr_weight': 'aggr_stride16.0.weight',
+    'rf_c2_aggr_bn_beta': 'aggr_stride16.1.bias',
+    'rf_c2_aggr_bn_gamma': 'aggr_stride16.1.weight',
+    'rf_c2_aggr_bn_moving_mean': 'aggr_stride16.1.running_mean',
+    'rf_c2_aggr_bn_moving_var': 'aggr_stride16.1.running_var',
+
+    'rf_c2_lateral_bias': 'conv_stride16.0.bias',
+    'rf_c2_lateral_weight': 'conv_stride16.0.weight',
+    'rf_c2_lateral_bn_beta': 'conv_stride16.1.bias',
+    'rf_c2_lateral_bn_gamma': 'conv_stride16.1.weight',
+    'rf_c2_lateral_bn_moving_mean': 'conv_stride16.1.running_mean',
+    'rf_c2_lateral_bn_moving_var': 'conv_stride16.1.running_var',
+
+    'rf_c3_lateral_bias': 'conv_stride32.0.bias',
+    'rf_c3_lateral_weight': 'conv_stride32.0.weight',
+    'rf_c3_lateral_bn_beta': 'conv_stride32.1.bias',
+    'rf_c3_lateral_bn_gamma': 'conv_stride32.1.weight',
+    'rf_c3_lateral_bn_moving_mean': 'conv_stride32.1.running_mean',
+    'rf_c3_lateral_bn_moving_var': 'conv_stride32.1.running_var',
+}
+
+CONTEXT_MAPPING = {
+    'conv1_bias': 'context_3x3.0.bias',
+    'conv1_weight': 'context_3x3.0.weight',
+    'conv1_bn_beta': 'context_3x3.1.bias',
+    'conv1_bn_gamma': 'context_3x3.1.weight',
+    'conv1_bn_moving_mean': 'context_3x3.1.running_mean',
+    'conv1_bn_moving_var': 'context_3x3.1.running_var',
+
+    'context_conv1_bias': 'dimension_reducer.0.bias',
+    'context_conv1_weight': 'dimension_reducer.0.weight',
+    'context_conv1_bn_beta': 'dimension_reducer.1.bias',
+    'context_conv1_bn_gamma': 'dimension_reducer.1.weight',
+    'context_conv1_bn_moving_mean': 'dimension_reducer.1.running_mean',
+    'context_conv1_bn_moving_var': 'dimension_reducer.1.running_var',
+
+    'context_conv2_bias': 'context_5x5.0.bias',
+    'context_conv2_weight': 'context_5x5.0.weight',
+    'context_conv2_bn_beta': 'context_5x5.1.bias',
+    'context_conv2_bn_gamma': 'context_5x5.1.weight',
+    'context_conv2_bn_moving_mean': 'context_5x5.1.running_mean',
+    'context_conv2_bn_moving_var': 'context_5x5.1.running_var',
+
+    'context_conv3_1_bias': 'context_7x7.0.bias',
+    'context_conv3_1_weight': 'context_7x7.0.weight',
+    'context_conv3_1_bn_beta': 'context_7x7.1.bias',
+    'context_conv3_1_bn_gamma': 'context_7x7.1.weight',
+    'context_conv3_1_bn_moving_mean': 'context_7x7.1.running_mean',
+    'context_conv3_1_bn_moving_var': 'context_7x7.1.running_var',
+
+    'context_conv3_2_bias': 'context_7x7.3.bias',
+    'context_conv3_2_weight': 'context_7x7.3.weight',
+    'context_conv3_2_bn_beta': 'context_7x7.4.bias',
+    'context_conv3_2_bn_gamma': 'context_7x7.4.weight',
+    'context_conv3_2_bn_moving_mean': 'context_7x7.4.running_mean',
+    'context_conv3_2_bn_moving_var': 'context_7x7.4.running_var',
+}
+
+
+def load_model():
+    from terran.face.detection import (
+        _load_from_mxnet, _load_pr_from_mxnet, BaseNetwork, mx_eval_at_symbol,
+        similar_enough, load_model, PyramidRefiner,
+    )
+
+    arr = np.expand_dims(np.asarray(
+        Image.open('/home/agustin/dev/faceotron/image.png')
+    ), 0)
+
+    model = BaseNetwork()
+    model.load_state_dict(
+        _load_from_mxnet(
+            '/home/agustin/dev/insightface/RetinaFace/model/mnet.25'
+        )
+    )
+    model = model.eval()
+
+    ref = PyramidRefiner()
+    ref.load_state_dict(
+        _load_pr_from_mxnet(
+            '/home/agustin/dev/insightface/RetinaFace/model/mnet.25'
+        )
+    )
+    ref = ref.eval()
+
+    pyt_out = model(torch.Tensor(arr.transpose([0, 3, 1, 2])))
+    ref_out = ref(pyt_out)
+
+
 def similar_enough(arr1, arr2, thr=1e-5):
     # Percentage of differences below threshold.
     return len(
@@ -105,8 +210,38 @@ def _load_from_mxnet(path):
         translations.append(f'{key:>{max_len}} >> {new_key}')
         state_dict[new_key] = value
 
-    for line in sorted(translations):
-        print(line)
+    # for line in sorted(translations):
+    #     print(line)
+
+    return state_dict
+
+
+def _load_pr_from_mxnet(path):
+    sym, arg_params, aux_params = mx.model.load_checkpoint(path, 0)
+
+    state_dict = {}
+    for key, value in chain(arg_params.items(), aux_params.items()):
+        if not key.startswith('rf_'):
+            continue
+
+        value = torch.Tensor(value.asnumpy())
+
+        if '_det_' in key:
+            base, rest = key[:5], key[10:]
+
+            new_base = {
+                'rf_c1': 'context_stride8',
+                'rf_c2': 'context_stride16',
+                'rf_c3': 'context_stride32',
+            }[base]
+            new_rest = CONTEXT_MAPPING[rest]
+
+            new_key = '.'.join([new_base, new_rest])
+
+        else:
+            new_key = BASE_MAPPING[key]
+
+        state_dict[new_key] = value
 
     return state_dict
 
@@ -230,30 +365,30 @@ class ContextModule(nn.Module):
         super().__init__()
 
         self.context_3x3 = nn.Sequential(
-            nn.Conv2d(256, 128, 3, padding=1),
-            nn.BatchNorm2d(128, momentum=0.9),
+            nn.Conv2d(64, 32, 3, padding=1),
+            nn.BatchNorm2d(32, momentum=0.9),
             nn.ReLU(),
         )
 
         self.dimension_reducer = nn.Sequential(
-            nn.Conv2d(256, 64, 3, padding=1),
-            nn.BatchNorm2d(64, momentum=0.9),
+            nn.Conv2d(64, 16, 3, padding=1),
+            nn.BatchNorm2d(16, momentum=0.9),
             nn.ReLU(),
         )
 
         self.context_5x5 = nn.Sequential(
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.BatchNorm2d(64, momentum=0.9),
+            nn.Conv2d(16, 16, 3, padding=1),
+            nn.BatchNorm2d(16, momentum=0.9),
             nn.ReLU(),
         )
 
         self.context_7x7 = nn.Sequential(
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.BatchNorm2d(64, momentum=0.9),
+            nn.Conv2d(16, 16, 3, padding=1),
+            nn.BatchNorm2d(16, momentum=0.9),
             nn.ReLU(),
 
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.BatchNorm2d(64, momentum=0.9),
+            nn.Conv2d(16, 16, 3, padding=1),
+            nn.BatchNorm2d(16, momentum=0.9),
             nn.ReLU(),
         )
 
@@ -282,18 +417,29 @@ class PyramidRefiner(nn.Module):
         super().__init__()
 
         self.conv_stride8 = nn.Sequential(
-            nn.Conv2d(64, 256, 1),
-            nn.BatchNorm2d(256, momentum=0.9),
+            nn.Conv2d(64, 64, 1),
+            nn.BatchNorm2d(64, momentum=0.9),
             nn.ReLU(),
         )
         self.conv_stride16 = nn.Sequential(
-            nn.Conv2d(128, 256, 1),
-            nn.BatchNorm2d(256, momentum=0.9),
+            nn.Conv2d(128, 64, 1),
+            nn.BatchNorm2d(64, momentum=0.9),
             nn.ReLU(),
         )
         self.conv_stride32 = nn.Sequential(
-            nn.Conv2d(256, 256, 1),
-            nn.BatchNorm2d(256, momentum=0.9),
+            nn.Conv2d(256, 64, 1),
+            nn.BatchNorm2d(64, momentum=0.9),
+            nn.ReLU(),
+        )
+
+        self.aggr_stride8 = nn.Sequential(
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.BatchNorm2d(64, momentum=0.9),
+            nn.ReLU(),
+        )
+        self.aggr_stride16 = nn.Sequential(
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.BatchNorm2d(64, momentum=0.9),
             nn.ReLU(),
         )
 
@@ -321,12 +467,16 @@ class PyramidRefiner(nn.Module):
         ups_stride32 = F.interpolate(
             proc_stride32, scale_factor=2
         )[:, :, :proc_stride16.shape[2], :proc_stride16.shape[3]]
-        proc_stride16 = proc_stride16 + ups_stride32
+        proc_stride16 = self.aggr_stride16(
+            proc_stride16 + ups_stride32
+        )
 
         ups_stride16 = F.interpolate(
             proc_stride16, scale_factor=2
         )[:, :, :proc_stride8.shape[2], :proc_stride8.shape[3]]
-        proc_stride8 = proc_stride8 + ups_stride16
+        proc_stride8 = self.aggr_stride8(
+            proc_stride8 + ups_stride16
+        )
 
         # Now run every scale through a context module.
         ctx_stride8 = self.context_stride8(proc_stride8)
