@@ -112,8 +112,18 @@ def _load_from_mxnet(path):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_c, out_c, stride=1):
+    def __init__(self, in_c, out_c, stride=1, return_both=False):
+        """Building block for base network, consisting of Conv, BN and ReLU.
+
+        Arguments:
+            return_both (bool): Return the outputs of both inner components,
+                the conv and the separable blocks. We do this because it's the
+                conv block the one that's used as feature pyramid.
+
+        """
         super().__init__()
+
+        self.return_both = return_both
 
         self.conv_block = nn.Sequential(
             nn.Conv2d(in_c, out_c, 1, stride=1, bias=False),
@@ -131,8 +141,14 @@ class ConvBlock(nn.Module):
         )
 
     def forward(self, x):
-        out = self.conv_block(x)
-        out = self.sep_block(out)
+        conv = self.conv_block(x)
+        sep = self.sep_block(conv)
+
+        if self.return_both:
+            out = conv, sep
+        else:
+            out = sep
+
         return out
 
 
@@ -164,7 +180,7 @@ class BaseNetwork(nn.Module):
                 ConvBlock(32, 32, stride=2),
 
                 ConvBlock(32, 64),
-                ConvBlock(64, 64, stride=2),  # relu10, relu11
+                ConvBlock(64, 64, stride=2, return_both=True),
             ),
 
             nn.Sequential(
@@ -173,7 +189,7 @@ class BaseNetwork(nn.Module):
                 ConvBlock(128, 128),
                 ConvBlock(128, 128),
                 ConvBlock(128, 128),
-                ConvBlock(128, 128, stride=2),  # relu22, relu23
+                ConvBlock(128, 128, stride=2, return_both=True),
             ),
         ])
 
@@ -182,15 +198,15 @@ class BaseNetwork(nn.Module):
             nn.Conv2d(256, 256, 1, bias=False),
             nn.BatchNorm2d(256, momentum=0.9),
             nn.ReLU(),
-        )  # relu26
+        )
 
     def forward(self, x):
         out = self.first_conv_block(x)
 
         feature_maps = []
         for scale in self.scales:
-            out = scale(out)
-            feature_maps.append(out)
+            conv, out = scale(out)
+            feature_maps.append(conv)
 
         out = self.final_conv(out)
         feature_maps.append(out)
