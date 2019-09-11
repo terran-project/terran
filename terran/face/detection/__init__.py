@@ -82,24 +82,47 @@ CONTEXT_MAPPING = {
     'context_conv3_2_bn_moving_var': 'context_7x7.4.running_var',
 }
 
+OUTPUT_MAPPING = {
+    'face_rpn_cls_score_stride8_bias': 'cls_stride8.bias',
+    'face_rpn_cls_score_stride8_weight': 'cls_stride8.weight',
+    'face_rpn_cls_score_stride16_bias': 'cls_stride16.bias',
+    'face_rpn_cls_score_stride16_weight': 'cls_stride16.weight',
+    'face_rpn_cls_score_stride32_bias': 'cls_stride32.bias',
+    'face_rpn_cls_score_stride32_weight': 'cls_stride32.weight',
+
+    'face_rpn_bbox_pred_stride8_bias': 'bbox_stride8.bias',
+    'face_rpn_bbox_pred_stride8_weight': 'bbox_stride8.weight',
+    'face_rpn_bbox_pred_stride16_bias': 'bbox_stride16.bias',
+    'face_rpn_bbox_pred_stride16_weight': 'bbox_stride16.weight',
+    'face_rpn_bbox_pred_stride32_bias': 'bbox_stride32.bias',
+    'face_rpn_bbox_pred_stride32_weight': 'bbox_stride32.weight',
+
+    'face_rpn_landmark_pred_stride8_bias': 'landmark_stride8.bias',
+    'face_rpn_landmark_pred_stride8_weight': 'landmark_stride8.weight',
+    'face_rpn_landmark_pred_stride16_bias': 'landmark_stride16.bias',
+    'face_rpn_landmark_pred_stride16_weight': 'landmark_stride16.weight',
+    'face_rpn_landmark_pred_stride32_bias': 'landmark_stride32.bias',
+    'face_rpn_landmark_pred_stride32_weight': 'landmark_stride32.weight',
+}
+
 
 def load_model():
-    from terran.face.detection import (
-        _load_from_mxnet, _load_pr_from_mxnet, BaseNetwork, mx_eval_at_symbol,
-        similar_enough, load_model, PyramidRefiner,
+    from terran.face.detection import (_load_from_mxnet, _load_pr_from_mxnet, BaseNetwork, mx_eval_at_symbol,
+        similar_enough, load_model, PyramidRefiner, OutputsPredictor,
+        _load_op_from_mxnet,
     )
 
     arr = np.expand_dims(np.asarray(
         Image.open('/home/agustin/dev/faceotron/image.png')
     ), 0)
 
-    model = BaseNetwork()
-    model.load_state_dict(
+    base = BaseNetwork()
+    base.load_state_dict(
         _load_from_mxnet(
             '/home/agustin/dev/insightface/RetinaFace/model/mnet.25'
         )
     )
-    model = model.eval()
+    base = base.eval()
 
     ref = PyramidRefiner()
     ref.load_state_dict(
@@ -109,15 +132,26 @@ def load_model():
     )
     ref = ref.eval()
 
-    pyt_out = model(torch.Tensor(arr.transpose([0, 3, 1, 2])))
-    ref_out = ref(pyt_out)
+    model = OutputsPredictor()
+    model.load_state_dict(
+        _load_op_from_mxnet(
+            '/home/agustin/dev/insightface/RetinaFace/model/mnet.25'
+        )
+    )
+
+    base_out = base(torch.Tensor(arr.transpose([0, 3, 1, 2])))
+    ref_out = ref(base_out)
+    pyt_out = model(ref_out)
 
 
-def similar_enough(arr1, arr2, thr=1e-5):
+def similar_enough(pyt_arr1, mx_arr2, thr=1e-5):
+    arr1 = pyt_arr1.detach().numpy()
+    arr2 = mx_arr2.asnumpy()
+
     # Percentage of differences below threshold.
     return len(
         np.flatnonzero(np.abs(arr1 - arr2) < thr)
-    ) / np.prod(arr1.shape)
+    ) / np.prod(arr1.shape), np.linalg.norm(arr1 - arr2)
 
 
 def mx_eval_at_symbol(path, layer, arr):
@@ -242,6 +276,20 @@ def _load_pr_from_mxnet(path):
             new_key = BASE_MAPPING[key]
 
         state_dict[new_key] = value
+
+    return state_dict
+
+
+def _load_op_from_mxnet(path):
+    sym, arg_params, aux_params = mx.model.load_checkpoint(path, 0)
+
+    state_dict = {}
+    for key, value in chain(arg_params.items(), aux_params.items()):
+        if not key.startswith('face_rpn_'):
+            continue
+
+        value = torch.Tensor(value.asnumpy())
+        state_dict[OUTPUT_MAPPING[key]] = value
 
     return state_dict
 
@@ -484,3 +532,74 @@ class PyramidRefiner(nn.Module):
         ctx_stride32 = self.context_stride32(proc_stride32)
 
         return [ctx_stride8, ctx_stride16, ctx_stride32]
+
+
+class OutputsPredictor(nn.Module):
+    """Uses the feature pyramid to predict the final deltas for the network."""
+
+    def __init__(self):
+        super().__init__()
+
+        # There are two anchors per point: two scales and one ratio.
+        self.num_anchors = 2
+
+        # Layers for anchor class, bbox coords and landmark coords.
+        self.cls_stride8 = nn.Conv2d(64, 2 * self.num_anchors, 1)
+        self.cls_stride16 = nn.Conv2d(64, 2 * self.num_anchors, 1)
+        self.cls_stride32 = nn.Conv2d(64, 2 * self.num_anchors, 1)
+
+        self.bbox_stride8 = nn.Conv2d(64, 4 * self.num_anchors, 1)
+        self.bbox_stride16 = nn.Conv2d(64, 4 * self.num_anchors, 1)
+        self.bbox_stride32 = nn.Conv2d(64, 4 * self.num_anchors, 1)
+
+        self.landmark_stride8 = nn.Conv2d(64, 10 * self.num_anchors, 1)
+        self.landmark_stride16 = nn.Conv2d(64, 10 * self.num_anchors, 1)
+        self.landmark_stride32 = nn.Conv2d(64, 10 * self.num_anchors, 1)
+
+    def forward(self, x):
+        """Forward pass for output predictor.
+
+        Expects `x` to hold one feature map per stride.
+        """
+        stride8, stride16, stride32 = x
+
+        cls_score8 = self.cls_stride8(stride8)
+        cls_score16 = self.cls_stride16(stride16)
+        cls_score32 = self.cls_stride32(stride32)
+
+        # Reshape the class scores so we can easily calculate the softmax along
+        # the two entries per anchor.
+        N, A, H, W = cls_score8.shape
+        cls_prob8 = F.softmax(
+            cls_score8.view(N, 2, -1, W), dim=1
+        ).view(N, A, H, W)
+        N, A, H, W = cls_score16.shape
+        cls_prob16 = F.softmax(
+            cls_score16.view(N, 2, -1, W), dim=1
+        ).view(N, A, H, W)
+        N, A, H, W = cls_score32.shape
+        cls_prob32 = F.softmax(
+            cls_score32.view(N, 2, -1, W), dim=1
+        ).view(N, A, H, W)
+
+        bbox_pred8 = self.bbox_stride8(stride8)
+        bbox_pred16 = self.bbox_stride16(stride16)
+        bbox_pred32 = self.bbox_stride32(stride32)
+
+        landmark_pred8 = self.landmark_stride8(stride8)
+        landmark_pred16 = self.landmark_stride16(stride16)
+        landmark_pred32 = self.landmark_stride32(stride32)
+
+        return [
+            cls_prob8,
+            bbox_pred8,
+            landmark_pred8,
+
+            cls_prob16,
+            bbox_pred16,
+            landmark_pred16,
+
+            cls_prob32,
+            bbox_pred32,
+            landmark_pred32,
+        ]
