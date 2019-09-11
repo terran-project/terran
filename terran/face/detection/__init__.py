@@ -106,8 +106,28 @@ OUTPUT_MAPPING = {
 }
 
 
-def load_model():
-    from terran.face.detection import (_load_from_mxnet, _load_pr_from_mxnet, BaseNetwork, mx_eval_at_symbol,
+def load_model(path):
+    model = RetinaFace().eval()
+
+    state_dict = {}
+    state_dict.update({
+        f'base.{k}': v for k, v in _load_from_mxnet(path).items()
+    })
+    state_dict.update({
+        f'refiner.{k}': v for k, v in _load_pr_from_mxnet(path).items()
+    })
+    state_dict.update({
+        f'outputs.{k}': v for k, v in _load_op_from_mxnet(path).items()
+    })
+
+    model.load_state_dict(state_dict)
+
+    return model
+
+
+def run_tests():
+    from terran.face.detection import (
+        _load_from_mxnet, _load_pr_from_mxnet, BaseNetwork, mx_eval_at_symbol,
         similar_enough, load_model, PyramidRefiner, OutputsPredictor,
         _load_op_from_mxnet,
     )
@@ -603,3 +623,28 @@ class OutputsPredictor(nn.Module):
             bbox_pred32,
             landmark_pred32,
         ]
+
+
+class RetinaFace(nn.Module):
+    """RetinaFace model with a pseudo-MobileNet backbone.
+
+    Consists of three inner modules: a base network to get a feature pyramid
+    from, a pyramid refiner, that adds context and mixes the results a bit, and
+    an output predictor that returns the final predictions for class, bounding
+    box and landmarks per anchor.
+
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        self.base = BaseNetwork()
+        self.refiner = PyramidRefiner()
+        self.outputs = OutputsPredictor()
+
+    def forward(self, x):
+        out = self.base(x)
+        out = self.refiner(out)
+        out = self.outputs(out)
+
+        return out
