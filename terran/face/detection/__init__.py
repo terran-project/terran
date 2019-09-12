@@ -107,7 +107,7 @@ OUTPUT_MAPPING = {
 
 
 def load_model(path):
-    model = RetinaFace().eval()
+    model = RetinaFace()
 
     state_dict = {}
     state_dict.update({
@@ -121,6 +121,7 @@ def load_model(path):
     })
 
     model.load_state_dict(state_dict)
+    model.eval()
 
     return model
 
@@ -158,6 +159,7 @@ def run_tests():
             '/home/agustin/dev/insightface/RetinaFace/model/mnet.25'
         )
     )
+    model = model.eval()
 
     base_out = base(torch.Tensor(arr.transpose([0, 3, 1, 2])))
     ref_out = ref(base_out)
@@ -334,7 +336,7 @@ class ConvSepBlock(nn.Module):
 
         self.conv_block = nn.Sequential(
             nn.Conv2d(in_c, out_c, 1, stride=1, bias=False),
-            nn.BatchNorm2d(out_c, momentum=0.9),
+            nn.BatchNorm2d(out_c, momentum=0.9, eps=1e-5),
             nn.ReLU(),
         )
 
@@ -343,7 +345,7 @@ class ConvSepBlock(nn.Module):
                 out_c, out_c, 3, stride=stride, padding=1, groups=out_c,
                 bias=False
             ),
-            nn.BatchNorm2d(out_c, momentum=0.9),
+            nn.BatchNorm2d(out_c, momentum=0.9, eps=1e-5),
             nn.ReLU(),
         )
 
@@ -368,11 +370,11 @@ class BaseNetwork(nn.Module):
         # stride and kernel size is on the non-separable convolution instead.
         self.first_conv_block = nn.Sequential(
             nn.Conv2d(3, 8, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(8, momentum=0.9),
+            nn.BatchNorm2d(8, momentum=0.9, eps=1e-5),
             nn.ReLU(),
 
             nn.Conv2d(8, 8, 3, stride=1, padding=1, groups=8, bias=False),
-            nn.BatchNorm2d(8, momentum=0.9),
+            nn.BatchNorm2d(8, momentum=0.9, eps=1e-5),
             nn.ReLU(),
         )
 
@@ -403,7 +405,7 @@ class BaseNetwork(nn.Module):
         self.final_conv = nn.Sequential(
             ConvSepBlock(128, 256),
             nn.Conv2d(256, 256, 1, bias=False),
-            nn.BatchNorm2d(256, momentum=0.9),
+            nn.BatchNorm2d(256, momentum=0.9, eps=1e-5),
             nn.ReLU(),
         )
 
@@ -434,29 +436,29 @@ class ContextModule(nn.Module):
 
         self.context_3x3 = nn.Sequential(
             nn.Conv2d(64, 32, 3, padding=1),
-            nn.BatchNorm2d(32, momentum=0.9),
+            nn.BatchNorm2d(32, momentum=0.9, eps=2e-5),
             nn.ReLU(),
         )
 
         self.dimension_reducer = nn.Sequential(
             nn.Conv2d(64, 16, 3, padding=1),
-            nn.BatchNorm2d(16, momentum=0.9),
+            nn.BatchNorm2d(16, momentum=0.9, eps=2e-5),
             nn.ReLU(),
         )
 
         self.context_5x5 = nn.Sequential(
             nn.Conv2d(16, 16, 3, padding=1),
-            nn.BatchNorm2d(16, momentum=0.9),
+            nn.BatchNorm2d(16, momentum=0.9, eps=2e-5),
             nn.ReLU(),
         )
 
         self.context_7x7 = nn.Sequential(
             nn.Conv2d(16, 16, 3, padding=1),
-            nn.BatchNorm2d(16, momentum=0.9),
+            nn.BatchNorm2d(16, momentum=0.9, eps=2e-5),
             nn.ReLU(),
 
             nn.Conv2d(16, 16, 3, padding=1),
-            nn.BatchNorm2d(16, momentum=0.9),
+            nn.BatchNorm2d(16, momentum=0.9, eps=2e-5),
             nn.ReLU(),
         )
 
@@ -486,28 +488,28 @@ class PyramidRefiner(nn.Module):
 
         self.conv_stride8 = nn.Sequential(
             nn.Conv2d(64, 64, 1),
-            nn.BatchNorm2d(64, momentum=0.9),
+            nn.BatchNorm2d(64, momentum=0.9, eps=2e-5),
             nn.ReLU(),
         )
         self.conv_stride16 = nn.Sequential(
             nn.Conv2d(128, 64, 1),
-            nn.BatchNorm2d(64, momentum=0.9),
+            nn.BatchNorm2d(64, momentum=0.9, eps=2e-5),
             nn.ReLU(),
         )
         self.conv_stride32 = nn.Sequential(
             nn.Conv2d(256, 64, 1),
-            nn.BatchNorm2d(64, momentum=0.9),
+            nn.BatchNorm2d(64, momentum=0.9, eps=2e-5),
             nn.ReLU(),
         )
 
         self.aggr_stride8 = nn.Sequential(
             nn.Conv2d(64, 64, 3, padding=1),
-            nn.BatchNorm2d(64, momentum=0.9),
+            nn.BatchNorm2d(64, momentum=0.9, eps=2e-5),
             nn.ReLU(),
         )
         self.aggr_stride16 = nn.Sequential(
             nn.Conv2d(64, 64, 3, padding=1),
-            nn.BatchNorm2d(64, momentum=0.9),
+            nn.BatchNorm2d(64, momentum=0.9, eps=2e-5),
             nn.ReLU(),
         )
 
@@ -611,17 +613,17 @@ class OutputsPredictor(nn.Module):
         landmark_pred32 = self.landmark_stride32(stride32)
 
         return [
-            cls_prob8,
-            bbox_pred8,
-            landmark_pred8,
+            cls_prob32,
+            bbox_pred32,
+            landmark_pred32,
 
             cls_prob16,
             bbox_pred16,
             landmark_pred16,
 
-            cls_prob32,
-            bbox_pred32,
-            landmark_pred32,
+            cls_prob8,
+            bbox_pred8,
+            landmark_pred8,
         ]
 
 
