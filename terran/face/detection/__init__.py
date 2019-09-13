@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import torch
 
 from terran.face.detection.utils.bbox_transform import clip_boxes
@@ -12,10 +13,10 @@ from terran.face.detection.utils.nms import (
 from terran.face.detection.retinaface import RetinaFace as RetinaFaceModel
 
 
-def load_model(path):
+def load_model():
     model = RetinaFaceModel()
     model.load_state_dict(torch.load(
-        '/home/agustin/dev/terran/checkpoints/retinaface-mnet.pth'
+        os.path.expanduser('~/.terran/checkpoints/retinaface-mnet.pth')
     ))
     model.eval()
     return model
@@ -23,7 +24,7 @@ def load_model(path):
 
 class RetinaFace:
 
-    def __init__(self, prefix, ctx_id=0, nms_threshold=0.4):
+    def __init__(self, ctx_id=0, nms_threshold=0.4):
         self.ctx_id = ctx_id
         self.nms_threshold = nms_threshold
 
@@ -70,7 +71,7 @@ class RetinaFace:
             )
         )
 
-        self.model = load_model(prefix).to(torch.device('cuda:0'))
+        self.model = load_model().to(torch.device('cuda:0'))
         self.nms = gpu_nms_wrapper(self.nms_threshold, self.ctx_id)
 
     def detect(self, images, threshold=0.5):
