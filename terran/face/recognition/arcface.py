@@ -131,30 +131,27 @@ class Unit(nn.Module):
         self.body = nn.Sequential(
             nn.BatchNorm2d(in_c, momentum=0.9, eps=2e-5),
 
-            nn.Conv2d(in_c, out_c, 3, stride=stride, padding=1, bias=False),
+            nn.Conv2d(in_c, out_c, 3, padding=1, bias=False),
             nn.BatchNorm2d(out_c, momentum=0.9, eps=2e-5),
             nn.PReLU(num_parameters=out_c),
 
-            nn.Conv2d(out_c, out_c, 3, padding=1, bias=False),
+            nn.Conv2d(out_c, out_c, 3, stride=stride, padding=1, bias=False),
             nn.BatchNorm2d(out_c, momentum=0.9, eps=2e-5),
         )
 
+        # If input and output dimensions within unit don't match, apply a
+        # convolutional layer to adjust the number of channels.
         if not self.dimensions_match:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_c, out_c, 1, stride=stride, bias=False),
                 nn.BatchNorm2d(out_c, momentum=0.9, eps=2e-5),
             )
+        else:
+            self.shortcut = nn.Identity()
 
     def forward(self, x):
         body = self.body(x)
-
-        # If input and output dimensions within unit don't match, apply a
-        # convolutional layer to adjust the number of channels.
-        if not self.dimensions_match:
-            shortcut = self.shortcut(x)
-        else:
-            shortcut = x
-
+        shortcut = self.shortcut(x)
         return body + shortcut
 
 
@@ -211,6 +208,7 @@ class FaceResNet100(nn.Module):
         preprocessed = (x - self.mean) * self.std
 
         out = self.initial_layer(preprocessed)
+
         for stage in self.stages:
             out = stage(out)
 
