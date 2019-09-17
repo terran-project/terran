@@ -1,16 +1,10 @@
-import mxnet as mx
 import numpy as np
-import os
 
 from PIL import Image
 
 from terran.face.recognition.face_model import FaceModel
 
 
-os.environ['MXNET_CUDNN_AUTOTUNE_DEFAULT'] = '0'
-FACE_RECOGNITION_PATH = os.environ.get('FACE_RECOGNITION_PATH')
-MTCNN_PATH = os.environ.get('MTCNN_PATH')
-CTX = mx.gpu() if os.environ.get('MXNET_USE_GPU') else mx.cpu()
 MODEL = None
 IMAGE_SIZE = 112
 
@@ -18,18 +12,9 @@ IMAGE_SIZE = 112
 def _get_face_recognition_model():
     global MODEL
     if MODEL is None:
-        if FACE_RECOGNITION_PATH is None:
-            raise ValueError(
-                '`FACE_RECOGNITION_PATH` environment variable not set. Point '
-                'it to the face recognition checkpoint location.'
-            )
         MODEL = FaceModel(
-            os.path.expanduser(FACE_RECOGNITION_PATH),
-            os.path.expanduser(MTCNN_PATH),
-            ctx=CTX,
             threshold=1.24,
-            image_size=(IMAGE_SIZE, IMAGE_SIZE),
-            det=0,
+            image_size=(IMAGE_SIZE, IMAGE_SIZE)
         )
     return MODEL
 
