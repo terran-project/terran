@@ -34,7 +34,13 @@ def _get_face_recognition_model():
     return MODEL
 
 
-def extract_features(faces):
+def extract_features(faces, detections=None):
+    """Extract a face embedding from each face.
+
+    If `detections` is provided, will use the landmarks to preprocess the
+    images, thus obtaining better embeddings. When using `detections`, the
+    image provided in `faces` may be the full-size image.
+    """
     # If `faces` is a single `np.ndarray`, turn into a list.
     expanded = False
     if (
@@ -44,13 +50,18 @@ def extract_features(faces):
         expanded = True
         faces = [faces]
 
+        # TODO: Also check for this one.
+        # TODO: And check that `len(faces)` is equal to `len(detections)`.
+        detections = [detections]
+
     model = _get_face_recognition_model()
 
     preprocessed = []
-    for face in faces:
-        curr_preprocessed = model.get_input(face)
-        if curr_preprocessed is None:
-            # MTCNN preprocessing failed, do it manually: resize image to
+    for idx, face in enumerate(faces):
+        if detections is not None:
+            curr_preprocessed = model.get_input(face, detections[idx])
+        else:
+            # No landmarks provided, so preprocess it manually: resize image to
             # `IMAGE_SIZExIMAGE_SIZE` and add padding around it.
             face = Image.fromarray(face)
 
