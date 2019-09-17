@@ -1,9 +1,21 @@
 import cv2
-import mxnet as mx
 import numpy as np
+import os
+import torch
 
 from sklearn.preprocessing import normalize
 from skimage.transform import SimilarityTransform
+
+from terran.face.recognition.arcface import FaceResNet100
+
+
+def load_model():
+    model = FaceResNet100()
+    model.load_state_dict(torch.load(
+        os.path.expanduser('~/.terran/checkpoints/arcface-resnet100.pth')
+    ))
+    model.eval()
+    return model
 
 
 def preprocess_face(
@@ -62,33 +74,10 @@ def preprocess_face(
         return warped
 
 
-def get_model(model_path, ctx, image_size, layer, batch_size=1):
-    sym, arg_params, aux_params = mx.model.load_checkpoint(model_path, 0)
-    all_layers = sym.get_internals()
-    sym = all_layers[f'{layer}_output']
-    model = mx.mod.Module(
-        symbol=sym,
-        context=ctx,
-        label_names=None
-    )
-
-    model.bind(
-        data_shapes=[
-            ('data', (batch_size, 3, image_size[0], image_size[1]))
-        ],
-    )
-
-    model.set_params(arg_params, aux_params)
-
-    return model
-
-
 class FaceModel:
 
-    def __init__(
-        self, model_path, ctx=mx.gpu(), threshold=1.24, image_size=(112, 112),
-    ):
-        self.model = get_model(model_path, ctx, image_size, 'fc1')
+    def __init__(self, threshold=1.24, image_size=(112, 112)):
+        self.model = load_model().to(torch.device('cuda:0'))
 
         self.det_threshold = [0.6, 0.7, 0.8]
         self.image_size = image_size
@@ -122,14 +111,12 @@ class FaceModel:
             expanded = True
             images = np.expand_dims(images, axis=0)
 
-        self.model.forward(
-            mx.io.DataBatch(data=(
-                mx.nd.array(images),
-            )),
-            is_train=False
+        # Turn the (already preprocessed) input into a `torch.Tensor` and feed
+        # through the network.
+        data = torch.tensor(
+            images, device=torch.device('cuda:0'), dtype=torch.float32
         )
-
-        features = self.model.get_outputs()[0].asnumpy()
+        features = self.model(data).detach().to('cpu').numpy()
         features = normalize(features, axis=1)
 
         if expanded:
