@@ -5,8 +5,6 @@ import numpy as np
 from sklearn.preprocessing import normalize
 from skimage.transform import SimilarityTransform
 
-from terran.face.recognition.mtcnn_detector import MtcnnDetector
-
 
 def preprocess_face(
     img, bbox=None, landmark=None, image_size=(112, 112), margin=44
@@ -88,8 +86,7 @@ def get_model(model_path, ctx, image_size, layer, batch_size=1):
 class FaceModel:
 
     def __init__(
-        self, model_path, mtcnn_path, ctx=mx.gpu(),
-        threshold=1.24, image_size=(112, 112), det=0,
+        self, model_path, ctx=mx.gpu(), threshold=1.24, image_size=(112, 112),
     ):
         self.model = get_model(model_path, ctx, image_size, 'fc1')
 
@@ -97,49 +94,21 @@ class FaceModel:
         self.image_size = image_size
         self.threshold = threshold
 
-        self.det_type = det
-        # TODO: Check difference.
-        if det == 0:
-            self.detector = MtcnnDetector(
-                model_folder=mtcnn_path,
-                ctx=ctx,
-                num_worker=1,
-                accurate_landmark=True,
-                threshold=self.det_threshold,
-            )
-        else:
-            self.detector = MtcnnDetector(
-                model_folder=mtcnn_path,
-                ctx=ctx,
-                num_worker=1,
-                accurate_landmark=True,
-                threshold=[0.0, 0.0, 0.2]
-            )
-
-    def get_input(self, image):
+    def get_input(self, image, face):
         """Prepares the face image for the recognition model.
 
-        First uses MTCNN to obtain the facial landmarks, then aligns the image,
-        pads to 112x112, and turns it into the BGR CxHxW format.
+        Uses the detected landmarks from the face detection stage, then aligns
+        the image, pads to 112x112, and turns it into the BGR CxHxW format.
+
+        TODO: If no face.
 
         Parameters
         ----------
         image : np.ndarray of size HxWxC.
 
         """
-        result = self.detector.detect_face(
-            image, det_type=self.det_type
-        )
-        if result is None:
-            return
-
-        bbox, points = result
-        if bbox.shape[0] == 0:
-            return
-
-        # Consider only the first (TODO: most confident?) detection.
-        bbox = bbox[0, 0:4]
-        points = points[0, :].reshape((2, 5)).T
+        bbox = face['bbox']
+        points = face['landmarks']
 
         processed = preprocess_face(image, bbox, points)
         processed = cv2.cvtColor(processed, cv2.COLOR_BGR2RGB)
