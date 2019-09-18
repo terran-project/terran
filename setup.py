@@ -13,6 +13,8 @@ setup(
         'click',
         'ffmpeg-python',
         'numpy',
+        'torch',
+        'torchvision',
     ],
 
     entry_points="""
