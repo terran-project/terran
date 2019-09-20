@@ -3,9 +3,11 @@ import numpy as np
 import os
 import torch
 
+from PIL import Image
 from sklearn.preprocessing import normalize
 from skimage.transform import SimilarityTransform
 
+from terran import default_device
 from terran.face.recognition.arcface import FaceResNet100
 
 
@@ -74,20 +76,22 @@ def preprocess_face(
         return warped
 
 
-class FaceModel:
+class ArcFace:
 
-    def __init__(self, threshold=1.24, image_size=(112, 112)):
-        self.model = load_model().to(torch.device('cuda:0'))
+    def __init__(self, device=default_device, threshold=1.24, image_side=112):
+        self.device = device
+        self.model = load_model().to(self.device)
 
         self.det_threshold = [0.6, 0.7, 0.8]
-        self.image_size = image_size
+        self.image_side = image_side
         self.threshold = threshold
 
     def get_input(self, image, face):
         """Prepares the face image for the recognition model.
 
         Uses the detected landmarks from the face detection stage, then aligns
-        the image, pads to 112x112, and turns it into the BGR CxHxW format.
+        the image, pads to `image_side`x`image_side`, and turns it into the BGR
+        CxHxW format.
 
         TODO: If no face.
 
@@ -99,27 +103,58 @@ class FaceModel:
         bbox = face['bbox']
         points = face['landmarks']
 
+        # TODO: Move all this to `preprocess_face` and remove this function.
         processed = preprocess_face(image, bbox, points)
         processed = cv2.cvtColor(processed, cv2.COLOR_BGR2RGB)
         aligned = np.transpose(processed, (2, 0, 1))
 
         return aligned
 
-    def get_feature(self, images):
-        expanded = False
-        if len(images.shape) == 3:
-            expanded = True
-            images = np.expand_dims(images, axis=0)
+    def call(self, images, faces_per_image=None, flatten=True):
+        # TODO: Implementing `flatten=False`, decide best default.
+        preprocessed = []
+        if faces_per_image is not None:
+            for image, faces in zip(images, faces_per_image):
+                for face in faces:
+                    preprocessed.append(
+                        self.get_input(image, face)
+                    )
+        else:
+            # No landmarks provided, so preprocess it manually: resize
+            # image to `image_size` and add padding around it.
+            face = Image.fromarray(image)
 
-        # Turn the (already preprocessed) input into a `torch.Tensor` and feed
-        # through the network.
+            scale = self.image_side / max(face.size[0], face.size[1])
+            face = face.resize(
+                (int(face.size[0] * scale), int(face.size[1] * scale))
+            )
+
+            x_min = int((self.image_side - face.size[0]) / 2)
+            x_max = int(
+                (self.image_side - face.size[0]) / 2
+            ) + face.size[0]
+            y_min = int((self.image_side - face.size[1]) / 2)
+            y_max = int(
+                (self.image_side - face.size[1]) / 2
+            ) + face.size[1]
+
+            curr_preprocessed = np.zeros(
+                (3, self.image_side, self.image_side), dtype=np.uint8
+            )
+            curr_preprocessed[:, y_min:y_max, x_min:x_max] = (
+                np.asarray(face).transpose([2, 0, 1])[::-1, ...]
+            )
+
+            preprocessed.append(curr_preprocessed)
+
+        preps = np.stack(preprocessed, axis=0)
+
+        # Now turn the (already preprocessed) input into a `torch.Tensor` and
+        # feed through the network.
         data = torch.tensor(
-            images, device=torch.device('cuda:0'), dtype=torch.float32
+            preps, device=self.device, dtype=torch.float32
         )
         features = self.model(data).detach().to('cpu').numpy()
         features = normalize(features, axis=1)
-
-        if expanded:
-            features = features.flatten()
 
         return features

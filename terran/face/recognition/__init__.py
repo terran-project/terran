@@ -1,75 +1,102 @@
 import numpy as np
 
-from PIL import Image
-
-from terran.face.recognition.face_model import FaceModel
-
-
-MODEL = None
-IMAGE_SIZE = 112
+from terran import default_device
+from terran.face.recognition.arcface_wrapper import ArcFace
 
 
-def _get_face_recognition_model():
-    global MODEL
-    if MODEL is None:
-        MODEL = FaceModel(
-            threshold=1.24,
-            image_size=(IMAGE_SIZE, IMAGE_SIZE)
-        )
-    return MODEL
+FACE_RECOGNITION_MODELS = {
+    # Aliases.
+    # TODO: Tentative names.
+    'gpu-accurate': None,
+    'gpu-realtime': ArcFace,
+    'cpu-realtime': None,
+    'edge-realtime': None,
+
+    # Models.
+    'arcface-resnet100': ArcFace,
+}
 
 
-def extract_features(faces, detections=None):
-    """Extract a face embedding from each face.
+class Recognition:
 
-    If `detections` is provided, will use the landmarks to preprocess the
-    images, thus obtaining better embeddings. When using `detections`, the
-    image provided in `faces` may be the full-size image.
-    """
-    # If `faces` is a single `np.ndarray`, turn into a list.
-    expanded = False
-    if (
-        not (isinstance(faces, list) or isinstance(faces, tuple))
-        and len(faces.shape) == 3
+    def __init__(
+        self, checkpoint='gpu-realtime', device=default_device, lazy=False,
     ):
-        expanded = True
-        faces = [faces]
+        """Initializes and loads the model for `checkpoint`.
 
-        # TODO: Also check for this one.
-        # TODO: And check that `len(faces)` is equal to `len(detections)`.
-        detections = [detections]
+        Parameters
+        ----------
+        checkpoint : str
+            Checkpoint (and model) to use in order to perform face recognition.
+        device : torch.Device
+            Device to load the model on.
+        lazy : bool
+            If set, will defer model loading until first call.
 
-    model = _get_face_recognition_model()
+        """
+        self.device = device
 
-    preprocessed = []
-    for idx, face in enumerate(faces):
-        if detections is not None:
-            curr_preprocessed = model.get_input(face, detections[idx])
-        else:
-            # No landmarks provided, so preprocess it manually: resize image to
-            # `IMAGE_SIZExIMAGE_SIZE` and add padding around it.
-            face = Image.fromarray(face)
-
-            scale = IMAGE_SIZE / max(face.size[0], face.size[1])
-            face = face.resize(
-                (int(face.size[0] * scale), int(face.size[1] * scale))
+        if checkpoint not in FACE_RECOGNITION_MODELS:
+            raise ValueError(
+                'Checkpoint not found, is it one of '
+                '`terran.face.recognition.FACE_RECOGNITION_MODELS`?'
             )
+        self.checkpoint = checkpoint
+        self.recognition_cls = FACE_RECOGNITION_MODELS[self.checkpoint]
 
-            x_min = int((IMAGE_SIZE - face.size[0]) / 2)
-            x_max = int((IMAGE_SIZE - face.size[0]) / 2) + face.size[0]
-            y_min = int((IMAGE_SIZE - face.size[1]) / 2)
-            y_max = int((IMAGE_SIZE - face.size[1]) / 2) + face.size[1]
+        # Load the model into memory unless we have the lazy loading set.
+        self.model = (
+            self.recognition_cls(device=self.device) if not lazy else None
+        )
 
-            curr_preprocessed = np.zeros(
-                (3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.uint8
-            )
-            curr_preprocessed[:, y_min:y_max, x_min:x_max] = (
-                np.asarray(face).transpose([2, 0, 1])[::-1, ...]
-            )
+    def __call__(self, images, faces_per_image=None):
+        """Performs face recognition on `images`.
 
-        preprocessed.append(curr_preprocessed)
+        Derives the actual prediction to the model the `Recognition` object was
+        initialized with.
 
-    preps = np.stack(preprocessed, axis=0)
-    features = model.get_feature(preps)
+        Parameters
+        ----------
+        images : list or tuple or np.ndarray
+            Images
+        faces_per_image : list
 
-    return features[0] if expanded else features
+        Returns
+        -------
+        List of...
+
+        """
+        # Make sure that `images` and `faces_per_image`, if present, match
+        # their ranks.
+        if faces_per_image is not None:
+            # TODO: Do.
+            pass
+
+        # If `images` is a single `np.ndarray`, turn into a list.
+        expanded = False
+        if (
+            not (isinstance(images, list) or isinstance(images, tuple))
+            and len(images.shape) == 3
+        ):
+            expanded = True
+            # TODO: Not like this; might be list.
+            images = np.expand_dims(images, 0)
+
+            # TODO: Also `faces_per_image`. See exactly what we want to
+            # support.
+            if isinstance(faces_per_image, dict):
+                faces_per_image = [[faces_per_image]]
+            else:
+                faces_per_image = [faces_per_image]
+
+        if self.model is None:
+            self.model = self.recognition_cls(device=self.device)
+        out = self.model.call(images, faces_per_image)
+
+        # TODO: Don't collapse back first dimension if we flattened the
+        # results.
+        # return out[0] if expanded else out
+        return out
+
+
+extract_features = Recognition(lazy=True)
