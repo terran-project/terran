@@ -8,7 +8,7 @@ from sklearn.preprocessing import normalize
 from skimage.transform import SimilarityTransform
 
 from terran import default_device
-from terran.face.recognition.arcface import FaceResNet100
+from terran.face.recognition.arcface.model import FaceResNet100
 
 
 def load_model():
