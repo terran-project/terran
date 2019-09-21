@@ -110,51 +110,100 @@ class ArcFace:
 
         return aligned
 
-    def call(self, images, faces_per_image=None, flatten=True):
-        # TODO: Implementing `flatten=False`, decide best default.
+    def call(self, images, faces_per_image=None):
+        """Performs feature extraction on `images`.
+
+        Can either receive already-cropped images for faces (when
+        `faces_per_image` is `None`), or a list of images and the face
+        coordinates and landmarks to crop, as returned by a `Detection`
+        function. The latter is preferable, as a more precise preprocessing can
+        be performed.
+
+        Parameters
+        ----------
+        images : list of numpy.ndarray or numpy.ndarray
+            Images to perform face recognition on.
+        faces_per_image : list of list of dicts.
+            Each dict entry must contain `bbox` and `landmarks` keys, as
+            returned by a `Detection` instance.
+
+        Returns
+        -------
+        list of numpy.ndarray or numpy.ndarray
+            One entry per image, with a numpy array of size (N_i, F), with F
+            being the embedding size returned by the model.
+
+        """
+        # Since every image will have a small number of faces, we want to
+        # unroll the features so we can use larger batch sizes with the model,
+        # and then re-arrange them in the original structure again. For that,
+        # we keep track of the indices with which to split in `splits`.
         preprocessed = []
         if faces_per_image is not None:
             for image, faces in zip(images, faces_per_image):
                 for face in faces:
-                    preprocessed.append(
-                        self.get_input(image, face)
-                    )
+                    preprocessed.append(self.get_input(image, face))
+
+            # A bit of magic, but gets us the index within `preprocessed` where
+            # faces of each image start.
+            splits = np.cumsum(list(map(len, faces_per_image)))[:-1]
         else:
             # No landmarks provided, so preprocess it manually: resize
             # image to `image_size` and add padding around it.
-            face = Image.fromarray(image)
+            for image in images:
+                face = Image.fromarray(image)
 
-            scale = self.image_side / max(face.size[0], face.size[1])
-            face = face.resize(
-                (int(face.size[0] * scale), int(face.size[1] * scale))
-            )
+                scale = self.image_side / max(face.size[0], face.size[1])
+                face = face.resize(
+                    (int(face.size[0] * scale), int(face.size[1] * scale))
+                )
 
-            x_min = int((self.image_side - face.size[0]) / 2)
-            x_max = int(
-                (self.image_side - face.size[0]) / 2
-            ) + face.size[0]
-            y_min = int((self.image_side - face.size[1]) / 2)
-            y_max = int(
-                (self.image_side - face.size[1]) / 2
-            ) + face.size[1]
+                x_min = int((self.image_side - face.size[0]) / 2)
+                x_max = int(
+                    (self.image_side - face.size[0]) / 2
+                ) + face.size[0]
+                y_min = int((self.image_side - face.size[1]) / 2)
+                y_max = int(
+                    (self.image_side - face.size[1]) / 2
+                ) + face.size[1]
 
-            curr_preprocessed = np.zeros(
-                (3, self.image_side, self.image_side), dtype=np.uint8
-            )
-            curr_preprocessed[:, y_min:y_max, x_min:x_max] = (
-                np.asarray(face).transpose([2, 0, 1])[::-1, ...]
-            )
+                curr_preprocessed = np.zeros(
+                    (3, self.image_side, self.image_side), dtype=np.uint8
+                )
+                curr_preprocessed[:, y_min:y_max, x_min:x_max] = (
+                    np.asarray(face).transpose([2, 0, 1])[::-1, ...]
+                )
 
-            preprocessed.append(curr_preprocessed)
+                preprocessed.append(curr_preprocessed)
 
-        preps = np.stack(preprocessed, axis=0)
+            # No splits to perform under this scenario, we pack them up as if
+            # they were all faces for a single image.
+            splits = []
+
+        # No faces received, return early.
+        if not preprocessed:
+            # TODO: Embedding output depends on the model.
+            if faces_per_image is not None:
+                return np.empty((0, 512))
+            else:
+                return [
+                    np.empty((0, 512)) for _ in images
+                ]
+
+        preprocessed = np.stack(preprocessed, axis=0)
 
         # Now turn the (already preprocessed) input into a `torch.Tensor` and
         # feed through the network.
         data = torch.tensor(
-            preps, device=self.device, dtype=torch.float32
+            preprocessed, device=self.device, dtype=torch.float32
         )
         features = self.model(data).detach().to('cpu').numpy()
         features = normalize(features, axis=1)
 
-        return features
+        features_per_image = np.split(features, splits, axis=0)
+
+        if faces_per_image is None:
+            # If no per-image separation, just return the features.
+            features_per_image = features_per_image[0]
+
+        return features_per_image
