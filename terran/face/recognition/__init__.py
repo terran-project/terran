@@ -1,5 +1,5 @@
 from terran import default_device
-from terran.face.recognition.arcface_wrapper import ArcFace
+from terran.face.recognition.arcface import ArcFace
 
 
 FACE_RECOGNITION_MODELS = {
