@@ -1,5 +1,3 @@
-import numpy as np
-
 from terran import default_device
 from terran.face.recognition.arcface_wrapper import ArcFace
 
@@ -57,46 +55,55 @@ class Recognition:
 
         Parameters
         ----------
-        images : list or tuple or np.ndarray
-            Images
-        faces_per_image : list
+        images : list of numpy.ndarray or numpy.ndarray
+            Images to perform face recognition on.
+        faces_per_image : list of list of dicts.
+            Each dict entry must contain `bbox` and `landmarks` keys, as
+            returned by a `Detection` instance.
 
         Returns
         -------
-        List of...
+        list of numpy.ndarray or numpy.ndarray
+            One entry per image, with a numpy array of size (N_i, F), with F
+            being the embedding size returned by the model.
 
         """
-        # Make sure that `images` and `faces_per_image`, if present, match
-        # their ranks.
-        if faces_per_image is not None:
-            # TODO: Do.
-            pass
-
-        # If `images` is a single `np.ndarray`, turn into a list.
+        # If `images` is a single image, turn into a list.
         expanded = False
         if (
             not (isinstance(images, list) or isinstance(images, tuple))
             and len(images.shape) == 3
         ):
             expanded = True
-            # TODO: Not like this; might be list.
-            images = np.expand_dims(images, 0)
+            images = [images]
 
-            # TODO: Also `faces_per_image`. See exactly what we want to
-            # support.
+            # Also expand `faces_per_image`. If only received a `dict`, must
+            # expand it twice.
             if isinstance(faces_per_image, dict):
                 faces_per_image = [[faces_per_image]]
             else:
                 faces_per_image = [faces_per_image]
 
+        # Make sure that `images` and `faces_per_image`, if present, match
+        # their ranks.
+        if faces_per_image is not None and len(faces_per_image) != len(images):
+            raise ValueError(
+                f'`images` and `faces_per_image` must be of the same size, '
+                f'but the former is of size {len(images)} while the latter of '
+                f'size {len(faces_per_image)}.'
+            )
+
         if self.model is None:
             self.model = self.recognition_cls(device=self.device)
         out = self.model.call(images, faces_per_image)
 
-        # TODO: Don't collapse back first dimension if we flattened the
-        # results.
-        # return out[0] if expanded else out
-        return out
+        # What we return depends on how much we expanded.
+        if expanded and isinstance(faces_per_image, dict):
+            return out[0][0]
+        elif expanded:
+            return out[0]
+        else:
+            return out
 
 
 extract_features = Recognition(lazy=True)
