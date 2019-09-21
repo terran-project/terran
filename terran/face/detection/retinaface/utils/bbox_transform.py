@@ -1,6 +1,8 @@
 import numpy as np
 
-from terran.face.detection.utils.cython.bbox import bbox_overlaps_cython
+from terran.face.detection.retinaface.utils.cython.bbox import (
+    bbox_overlaps_cython
+)
 
 
 def bbox_overlaps(boxes, query_boxes):

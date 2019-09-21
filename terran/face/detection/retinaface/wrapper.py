@@ -3,14 +3,16 @@ import os
 import torch
 
 from terran import default_device
-from terran.face.detection.utils.bbox_transform import clip_boxes
-from terran.face.detection.utils.generate_anchor import (
+from terran.face.detection.retinaface.utils.bbox_transform import clip_boxes
+from terran.face.detection.retinaface.utils.generate_anchor import (
     generate_anchors_fpn, anchors_plane,
 )
-from terran.face.detection.utils.nms import (
+from terran.face.detection.retinaface.utils.nms import (
     gpu_nms_wrapper, cpu_nms_wrapper,
 )
-from terran.face.detection.retinaface import RetinaFace as RetinaFaceModel
+from terran.face.detection.retinaface.model import (
+    RetinaFace as RetinaFaceModel
+)
 
 
 def load_model():

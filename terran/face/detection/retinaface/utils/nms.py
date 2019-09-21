@@ -1,9 +1,9 @@
 import numpy as np
 
-from terran.face.detection.utils.cython.cpu_nms import cpu_nms
+from terran.face.detection.retinaface.utils.cython.cpu_nms import cpu_nms
 
 try:
-    from terran.face.detection.utils.cython.gpu_nms import gpu_nms
+    from terran.face.detection.retinaface.utils.cython.gpu_nms import gpu_nms
 except ImportError:
     gpu_nms = None
 
