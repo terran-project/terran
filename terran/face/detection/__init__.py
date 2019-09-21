@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 
 from terran import default_device
-from terran.face.detection.retinaface_wrapper import RetinaFace
+from terran.face.detection.retinaface import RetinaFace
 
 
 FACE_DETECTION_MODELS = {

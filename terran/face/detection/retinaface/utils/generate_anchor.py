@@ -3,7 +3,9 @@ Generate base anchors on index 0
 """
 import numpy as np
 
-from terran.face.detection.utils.cython.anchors import anchors_cython
+from terran.face.detection.retinaface.utils.cython.anchors import (
+    anchors_cython
+)
 
 
 def anchors_plane(feat_h, feat_w, stride, base_anchor):
