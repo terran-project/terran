@@ -3,6 +3,7 @@ import json
 import math
 import numpy as np
 import os
+import re
 import subprocess
 
 from threading import Event, Thread
@@ -11,18 +12,27 @@ from queue import Full as QueueFull, Queue
 from terran.io.video import DEFAULT_READER_BUFFER_SIZE, EndOfVideo, VideoClosed
 
 
-def ffmpeg_probe(filename, **kwargs):
+def ffmpeg_probe(path, **kwargs):
     """Run ffprobe on the specified file and return a JSON representation of
     the output.
 
     Based on the `ffmpeg.probe` provided by `ffmpeg-python`, but allows passing
     along additional options to `ffmpeg`.
 
-    Raises:
-        ffmpeg.Error: If `ffprobe` returns a non-zero exit code. The stderr
-            output can be retrieved by accessing the `stderr` property of the
-            exception.
+    Parameters
+    ----------
+    path : str
+        This parameter can be a path or URL pointing directly to a video file or stream.
+
+    Raises
+    ------
+    ffmpeg.Error: If `ffprobe` returns a non-zero exit code. The stderr
+        output can be retrieved by accessing the `stderr` property of the
+        exception.
     """
+    if not is_path_stream(path):
+        path = os.path.expanduser(path)
+
     # Gather all `kwargs` into a list of tokens to send to `ffprobe`.
     additional_args = []
     for key, value in kwargs.items():
@@ -32,16 +42,24 @@ def ffmpeg_probe(filename, **kwargs):
 
     args = [
         'ffprobe', *additional_args, '-show_format', '-show_streams', '-of',
-        'json', os.path.expanduser(filename)
+        'json', path
     ]
 
-    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    out, err = p.communicate()
-    if p.returncode != 0:
+    out, err = proc.communicate()
+    if proc.returncode != 0:
         raise ffmpeg.Error('ffprobe', out, err)
 
     return json.loads(out.decode('utf-8'))
+
+
+def is_path_stream(path):
+    """Returns True if the path points to a video stream"""
+    return any([
+        path.startswith(prefix)
+        for prefix in ['/dev/', 'http://', 'https://']
+    ])
 
 
 def parse_timestamp(timestamp):
@@ -95,7 +113,6 @@ def _clean_up_proc(proc):
 
 def _frame_reader(queue, should_stop, cmd, spec):
     """Worker function for the reading thread."""
-
     # Open the `ffmpeg` subprocess.
     proc = subprocess.Popen(
         cmd,
@@ -143,7 +160,7 @@ class Video:
 
     def __init__(
         self, path, batch_size=None, framerate=None, is_stream=None,
-        read_for=None, start_time=None,
+        read_for=None, start_time=None, ydl_format='best'
     ):
         """Initializes the reading of the video, performing the necessary
         checks.
@@ -172,12 +189,16 @@ class Video:
             start_time (int, str or None): Time to start video from. If an
                 `int`, specified in seconds. If `str`, specified as a timestamp
                 with the format `HH:MM:SS.ms`.
+            ydl_format (str): The format filtering option for YouTube-DL. Check out
+                the YouTube-DL "Format Selection" documentation for more information:
+                https://github.com/ytdl-org/youtube-dl#format-selection
         """
         self.path = os.path.expanduser(path)
 
         self.batch_size = batch_size
         self.read_for = read_for
         self._framerate = framerate
+        self.ydl_format = ydl_format
 
         # Parse before storing, so `start_time` will be either an `int`
         # specifying the seconds or `None`.
@@ -188,25 +209,21 @@ class Video:
         # Try to guess if it's capture device or a stream, as we might need to
         # do things differently.
         if not is_stream:
-            self.is_stream = (
-                self.path.startswith('/dev/')
-                or self.path.startswith('http://')
-                or self.path.startswith('https://')
-            )
-        else:
-            self.is_stream = is_stream
+            self.is_stream = is_path_stream(self.path)
 
         # Check for existing video streams within the file first, to validate
         # everything and to get the video dimensions.
         try:
             if self.is_stream:
+                self.stream_path = self._get_stream_path()
+
                 # If a capture device, use a bigger `probesize` and
                 # `analyzeduration` to make sure we have information on all
                 # existing streams.
                 # TODO: Use a lower probesize and analyzeduration and keep
                 # increasing on retries.
                 probe = ffmpeg_probe(
-                    self.path,
+                    self.stream_path,
                     probesize=20 * 1024 * 1024,
                     analyzeduration=10 * 1000 * 1000,
                 )
@@ -214,7 +231,7 @@ class Video:
                 probe = ffmpeg_probe(self.path)
         except ffmpeg.Error:
             raise ValueError(
-                f'File at `{path}` not found. Are you sure it exists?'
+                f'Video at `{path}` not found. Are you sure it exists?'
             )
 
         video_stream = next(
@@ -226,7 +243,7 @@ class Video:
         if not video_stream:
             raise ValueError(
                 f'No video stream found at `{path}`. Are you sure this is a '
-                'video file?'
+                'video file or stream?'
             )
 
         # Extract the information we need from the underlying source video.
@@ -261,6 +278,12 @@ class Video:
         self._thread = None
         self._queue = None
         self._closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     def __iter__(self):
         return self
@@ -330,6 +353,36 @@ class Video:
         else:
             return source_duration
 
+    def _get_stream_path(self):
+        """Check if video stream comes from a video sharing platform"""
+        youtube_regex = re.compile(
+            r'^(http(s)?:\/\/)?((w){3}.)?youtu(be|.be)?(\.com)?\/.+'
+        )
+        is_stream_youtube = bool(youtube_regex.match(self.path))
+
+        if is_stream_youtube:
+            try:
+                from youtube_dl import YoutubeDL
+
+                ydl_options = {'format': self.ydl_format, 'quiet': True}
+                with YoutubeDL(ydl_options) as ydl:
+                    info_dict = ydl.extract_info(self.path, download=False)
+
+                    if info_dict['url'] is None:
+                        raise ValueError(
+                            f'Unable to find YouTube stream URL for video format {self.ydl_format}'
+                        )
+
+                    return info_dict["url"]
+            except ImportError:
+                raise Exception(
+                    'Unable to find library to stream from online video platforms. '
+                    'Please install `youtube-dl` to support streaming from YouTube and '
+                    'other streaming platforms.'
+                )
+
+        return self.path
+
     def _prepare_ffmpeg_cmd(self):
         """Prepare the subprocess command for ffmpeg."""
         spec = ffmpeg
@@ -350,10 +403,17 @@ class Video:
                 'probesize': 20 * 1024 * 1024,
                 'analyzeduration': 10 * 1000 * 1000,
             })
-        elif self.start_time:
-            kwargs.update({'ss': self.start_time})
 
-        spec = spec.input(self.path, **kwargs)
+        # Start time works for normal videos and YouTube streams
+        if self.start_time or self.is_stream:
+            # Seek after 5 seconds to allow ffmpeg to see a reference frame.
+            # TODO: Why is this even necessary? Can't I just tell it to start
+            # from where valid?
+            kwargs.update({'ss': self.start_time or '00:00:05'})
+
+        # If stream comes from YouTube, we want to send the video to ffmpeg through stdin
+        input_file = self.stream_path if self.is_stream else self.path
+        spec = spec.input(input_file, **kwargs)
 
         # Prepare the output parameters.
         kwargs = {}
@@ -362,19 +422,12 @@ class Video:
         if self._framerate:
             kwargs.update({'r': str(self._framerate)})
 
-        if self.is_stream:
-            # Seek after 5 seconds to allow ffmpeg to see a reference frame.
-            # TODO: Why is this even necessary? Can't I just tell it to start
-            # from where valid?
-            kwargs.update({'ss': '00:00:05'})
-
         spec = spec.output(
             'pipe:', format='rawvideo', pix_fmt='rgb24', **kwargs
         )
 
-        spec = spec.compile()
-
-        return spec
+        cmd = spec.compile()
+        return cmd
 
     def read_frames(self):
         # If the video resource has been opened and closed already, bail out.
@@ -392,11 +445,14 @@ class Video:
                 'height': self.height,
                 'batch_size': self.batch_size,
             }
+
             self._queue = Queue(DEFAULT_READER_BUFFER_SIZE)
             self._stop_signal = Event()
+
             self._thread = Thread(
-                target=_frame_reader,
                 args=(self._queue, self._stop_signal, cmd, spec),
+                name='FrameReader',
+                target=_frame_reader,
                 # We don't want to keep the program hanging; as it's a reader
                 # thread, we don't care that the resources are closed abruptly.
                 daemon=True,
