@@ -7,7 +7,7 @@ from torchvision.ops import nms
 
 from terran import default_device
 from terran.face.detection.retinaface.utils.generate_anchor import (
-    generate_anchors_fpn, anchors_plane,
+    generate_anchor_reference, anchors_plane,
 )
 from terran.face.detection.retinaface.model import (
     RetinaFace as RetinaFaceModel
@@ -103,51 +103,42 @@ def landmark_pred(anchors, deltas):
 
 class RetinaFace:
 
-    def __init__(self, device=default_device, ctx_id=0, nms_threshold=0.4):
+    def __init__(self, device=default_device, nms_threshold=0.4):
         self.device = device
-        self.ctx_id = ctx_id
         self.nms_threshold = nms_threshold
 
-        self._feat_stride_fpn = [32, 16, 8]
-        self.anchor_cfg = {
+        # Anchor settings and feature strides used, specific to the `mnet`
+        # backbone.
+        self.feature_strides = [32, 16, 8]
+        self.anchor_settings = {
             8: {
-                'SCALES': (2, 1),
-                'BASE_SIZE': 16,
-                'RATIOS': (1,),
+                'scales': (2, 1),
+                'base_size': 16,
+                'ratios': (1,),
             },
             16: {
-                'SCALES': (8, 4),
-                'BASE_SIZE': 16,
-                'RATIOS': (1,),
+                'scales': (8, 4),
+                'base_size': 16,
+                'ratios': (1,),
             },
             32: {
-                'SCALES': (32, 16),
-                'BASE_SIZE': 16,
-                'RATIOS': (1,),
+                'scales': (32, 16),
+                'base_size': 16,
+                'ratios': (1,),
             },
         }
 
-        self.fpn_keys = self._feat_stride_fpn
-
-        self._anchors_fpn = dict(
-            zip(
-                self.fpn_keys,
-                generate_anchors_fpn(
-                    dense_anchor=False, cfg=self.anchor_cfg
-                ),
+        self.anchor_references = dict(zip(
+            self.feature_strides,
+            generate_anchor_reference(
+                settings=self.anchor_settings, device=self.device
             )
-        )
+        ))
 
-        for k in self._anchors_fpn:
-            v = self._anchors_fpn[k].astype(np.float32)
-            self._anchors_fpn[k] = v
-
-        self._num_anchors = dict(
-            zip(
-                self.fpn_keys,
-                [anchors.shape[0] for anchors in self._anchors_fpn.values()],
-            )
-        )
+        self.num_anchors_per_stride = {
+            stride: anchors.shape[0]
+            for stride, anchors in self.anchor_references.items()
+        }
 
         self.model = load_model().to(self.device)
 
@@ -173,32 +164,26 @@ class RetinaFace:
 
         # Calculate the base anchor coordinates per stride of the FPN.
         anchors_per_stride = {}
-        for stride in self._feat_stride_fpn:
-            # Input dimensions after model downsampling.
+        for stride in self.feature_strides:
+            # Input dimensions after model downsampling (i.e. feature map
+            # dimensions).
             height = math.ceil(H / stride)
             width = math.ceil(W / stride)
 
-            A = self._num_anchors[stride]
-            K = height * width
-
-            anchors_fpn = self._anchors_fpn[stride]
-            anchors = anchors_plane(height, width, stride, anchors_fpn)
-            anchors = torch.as_tensor(
-                anchors.reshape((K * A, 4)),
-                device=self.device
-            )
+            anchor_ref = self.anchor_references[stride]
+            anchors = anchors_plane(anchor_ref, height, width, stride)
             anchors_per_stride[stride] = anchors
 
         # Decode the outputs of the model, adjusting the anchors.
         proposals_list = []
         scores_list = []
         landmarks_list = []
-        for stride_idx, stride in enumerate(self._feat_stride_fpn):
+        for stride_idx, stride in enumerate(self.feature_strides):
             # Three per stride: class, bbox, landmark.
             idx = stride_idx * 3
 
             anchors = anchors_per_stride[stride]
-            A = self._num_anchors[stride]
+            A = self.num_anchors_per_stride[stride]
             N = output[idx].shape[0]
 
             scores = output[idx]
