@@ -2,7 +2,6 @@ import math
 import numpy as np
 import os
 import torch
-import time
 
 from torchvision.ops import nms
 
@@ -128,9 +127,7 @@ class RetinaFace:
             },
         }
 
-        self.fpn_keys = []
-        for s in self._feat_stride_fpn:
-            self.fpn_keys.append('stride%s' % s)
+        self.fpn_keys = self._feat_stride_fpn
 
         self._anchors_fpn = dict(
             zip(
@@ -165,50 +162,34 @@ class RetinaFace:
 
         # Load the batch in to a `torch.Tensor` and pre-process by turning it
         # into a BGR format for the channels.
-        t0 = time.time()
-        data = torch.tensor(
+        data = torch.as_tensor(
             images, device=self.device, dtype=torch.float32
         ).permute(0, 3, 1, 2).flip(1)
 
-        torch.cuda.synchronize()
-
-        # Run the images through the network.
-
-        t1 = time.time()
-        print(f'    Loading {1000 * (t1 - t0):.1f}ms ({1000 * (t1 - t0) / len(images):.1f}ms/img)')
-        # TODO: Why does `eval` not `no_grad()`?
+        # Run the images through the network. Disable gradients, as they're not
+        # needed.
         with torch.no_grad():
-            net_out = self.model(data)
+            output = self.model(data)
 
-        torch.cuda.synchronize()
-
-        t2 = time.time()
-        print(f'    Model {1000 * (t2 - t1):.1f}ms ({1000 * (t2 - t1) / len(images):.1f}ms/img)')
-
+        # Calculate the base anchor coordinates per stride of the FPN.
         anchors_per_stride = {}
         for stride in self._feat_stride_fpn:
-            # Downsampling ratio for current stride.
+            # Input dimensions after model downsampling.
             height = math.ceil(H / stride)
             width = math.ceil(W / stride)
 
-            A = self._num_anchors[f'stride{stride}']
+            A = self._num_anchors[stride]
             K = height * width
 
-            anchors_fpn = self._anchors_fpn[f'stride{stride}']
+            anchors_fpn = self._anchors_fpn[stride]
             anchors = anchors_plane(height, width, stride, anchors_fpn)
-            anchors = torch.tensor(
+            anchors = torch.as_tensor(
                 anchors.reshape((K * A, 4)),
                 device=self.device
             )
             anchors_per_stride[stride] = anchors
 
-        torch.cuda.synchronize()
-
-        t3 = time.time()
-        print(f'    Anchor-Stuff {1000 * (t3 - t2):.1f}ms ({1000 * (t3 - t2) / len(images):.1f}ms/img)')
-
-        t4 = 0
-        t5 = 0
+        # Decode the outputs of the model, adjusting the anchors.
         proposals_list = []
         scores_list = []
         landmarks_list = []
@@ -217,50 +198,43 @@ class RetinaFace:
             idx = stride_idx * 3
 
             anchors = anchors_per_stride[stride]
-            A = self._num_anchors[f'stride{stride}']
-            N = net_out[idx].shape[0]
+            A = self._num_anchors[stride]
+            N = output[idx].shape[0]
 
-            t4_0 = time.time()
-            scores = net_out[idx]
+            scores = output[idx]
             scores = scores[:, A:, :, :]
             scores = scores.permute(0, 2, 3, 1).reshape(N, -1)
 
-            bbox_deltas = net_out[idx + 1]
+            bbox_deltas = output[idx + 1]
             bbox_pred_len = bbox_deltas.shape[1] // A
             bbox_deltas = bbox_deltas.permute(0, 2, 3, 1).reshape(
                 (N, -1, bbox_pred_len)
             )
 
-            landmark_deltas = net_out[idx + 2]
+            landmark_deltas = output[idx + 2]
             landmark_pred_len = landmark_deltas.shape[1] // A
             landmark_deltas = landmark_deltas.permute(0, 2, 3, 1).reshape(
                 (N, -1, 5, landmark_pred_len // 5)
             )
 
-            torch.cuda.synchronize()
-            t4 += time.time() - t4_0
-
-            t5_0 = time.time()
             proposals = bbox_pred(anchors, bbox_deltas)
             landmarks = landmark_pred(anchors, landmark_deltas)
-
-            torch.cuda.synchronize()
-            t5 += time.time() - t5_0
 
             scores_list.append(scores)
             proposals_list.append(proposals)
             landmarks_list.append(landmarks)
 
-        all_scores = torch.cat(scores_list, dim=1)
-        all_proposals = torch.cat(proposals_list, dim=1)
-        all_landmarks = torch.cat(landmarks_list, dim=1)
+        batch_scores = torch.cat(scores_list, dim=1)
+        batch_proposals = torch.cat(proposals_list, dim=1)
+        batch_landmarks = torch.cat(landmarks_list, dim=1)
 
-        t6 = time.time()
+        # Collect the predictions per image, filtering low-scoring proposals
+        # and performing NMS.
         batch_objects = []
         for image_idx in range(images.shape[0]):
-            scores = all_scores[image_idx]
-            proposals = all_proposals[image_idx]
-            landmarks = all_landmarks[image_idx]
+            scores = batch_scores[image_idx]
+            proposals = batch_proposals[image_idx]
+            landmarks = batch_landmarks[image_idx]
 
             order = torch.where(scores >= threshold)[0]
             proposals = proposals[order, :]
@@ -277,7 +251,7 @@ class RetinaFace:
             scores = scores[order]
             landmarks = landmarks[order]
 
-            # Run the predictions through NMS.
+            # Run the predictions through non-maximum suppression.
             keep = nms(proposals, scores, self.nms_threshold)
             proposals = proposals[keep].to('cpu').numpy()
             scores = scores[keep].to('cpu').numpy()
@@ -287,10 +261,5 @@ class RetinaFace:
                 {'bbox': b,  'landmarks': l, 'score': s}
                 for s, b, l in zip(scores, proposals, landmarks)
             ])
-
-        tf = time.time()
-        print(f'    Preparation {1000 * (t4):.1f}ms ({1000 * (t4) / len(images):.1f}ms/img)')
-        print(f'    Decoding {1000 * (t5):.1f}ms ({1000 * (t5) / len(images):.1f}ms/img)')
-        print(f'    Per-image {1000 * (tf - t6):.1f}ms ({1000 * (tf - t6) / len(images):.1f}ms/img)')
 
         return batch_objects
