@@ -6,8 +6,8 @@ import torch
 from torchvision.ops import nms
 
 from terran import default_device
-from terran.face.detection.retinaface.utils.generate_anchor import (
-    generate_anchor_reference, anchors_plane,
+from terran.face.detection.retinaface.anchors import (
+    anchors_plane, generate_anchor_reference,
 )
 from terran.face.detection.retinaface.model import (
     RetinaFace as RetinaFaceModel
