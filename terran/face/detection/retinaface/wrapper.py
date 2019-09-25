@@ -1,5 +1,4 @@
 import math
-import numpy as np
 import os
 import torch
 
@@ -23,19 +22,7 @@ def load_model():
     return model
 
 
-def clip_boxes(boxes, im_shape):
-    # x1 >= 0
-    boxes[:, 0::4] = np.maximum(np.minimum(boxes[:, 0::4], im_shape[1] - 1), 0)
-    # y1 >= 0
-    boxes[:, 1::4] = np.maximum(np.minimum(boxes[:, 1::4], im_shape[0] - 1), 0)
-    # x2 < im_shape[1]
-    boxes[:, 2::4] = np.maximum(np.minimum(boxes[:, 2::4], im_shape[1] - 1), 0)
-    # y2 < im_shape[0]
-    boxes[:, 3::4] = np.maximum(np.minimum(boxes[:, 3::4], im_shape[0] - 1), 0)
-    return boxes
-
-
-def bbox_pred(anchors, deltas):
+def decode_bboxes(anchors, deltas):
     """Apply the bbox delta predictions on the base anchor coordinates.
 
     Paramters
@@ -64,8 +51,8 @@ def bbox_pred(anchors, deltas):
     pred_w = torch.exp(dw) * widths
     pred_h = torch.exp(dh) * heights
 
+    # Perform the decoding in-place.
     pred = deltas
-    # pred_boxes = torch.zeros_like(deltas)
     pred[..., 0] = pred_ctr_x - 0.5 * (pred_w - 1.0)
     pred[..., 1] = pred_ctr_y - 0.5 * (pred_h - 1.0)
     pred[..., 2] = pred_ctr_x + 0.5 * (pred_w - 1.0)
@@ -74,7 +61,7 @@ def bbox_pred(anchors, deltas):
     return pred
 
 
-def landmark_pred(anchors, deltas):
+def decode_landmarks(anchors, deltas):
     """Apply the landmark delta predictions on the base anchor coordinates.
 
     Paramters
@@ -93,6 +80,7 @@ def landmark_pred(anchors, deltas):
     ctr_x = anchors[:, 0] + 0.5 * (widths - 1.0)
     ctr_y = anchors[:, 1] + 0.5 * (heights - 1.0)
 
+    # Perform the decoding in-place.
     pred = deltas
     for i in range(5):
         pred[..., i, 0] = deltas[..., i, 0] * widths + ctr_x
@@ -202,8 +190,8 @@ class RetinaFace:
                 (N, -1, 5, landmark_pred_len // 5)
             )
 
-            proposals = bbox_pred(anchors, bbox_deltas)
-            landmarks = landmark_pred(anchors, landmark_deltas)
+            proposals = decode_bboxes(anchors, bbox_deltas)
+            landmarks = decode_landmarks(anchors, landmark_deltas)
 
             scores_list.append(scores)
             proposals_list.append(proposals)
