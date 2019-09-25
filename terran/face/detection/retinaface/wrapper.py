@@ -1,14 +1,13 @@
 import numpy as np
 import os
 import torch
+import time
+
+from torchvision.ops import nms
 
 from terran import default_device
-from terran.face.detection.retinaface.utils.bbox_transform import clip_boxes
 from terran.face.detection.retinaface.utils.generate_anchor import (
     generate_anchors_fpn, anchors_plane,
-)
-from terran.face.detection.retinaface.utils.nms import (
-    gpu_nms_wrapper, cpu_nms_wrapper,
 )
 from terran.face.detection.retinaface.model import (
     RetinaFace as RetinaFaceModel
@@ -22,6 +21,79 @@ def load_model():
     ))
     model.eval()
     return model
+
+
+def clip_boxes(boxes, im_shape):
+    # x1 >= 0
+    boxes[:, 0::4] = np.maximum(np.minimum(boxes[:, 0::4], im_shape[1] - 1), 0)
+    # y1 >= 0
+    boxes[:, 1::4] = np.maximum(np.minimum(boxes[:, 1::4], im_shape[0] - 1), 0)
+    # x2 < im_shape[1]
+    boxes[:, 2::4] = np.maximum(np.minimum(boxes[:, 2::4], im_shape[1] - 1), 0)
+    # y2 < im_shape[0]
+    boxes[:, 3::4] = np.maximum(np.minimum(boxes[:, 3::4], im_shape[0] - 1), 0)
+    return boxes
+
+
+def bbox_pred(anchors, deltas):
+    """Apply the delta predictions on the base anchor coordinates.
+
+    Paramters
+    ---------
+    anchors : torch.Tensor of shape Nx4
+    deltas : torch.Tensor of shape Nx4
+
+    Returns
+    -------
+    torch.Tensor of shape Nx4
+        Adjusted bounding boxes.
+
+    """
+    if anchors.shape[0] == 0:
+        return torch.zeros([0, 4])
+
+    widths = anchors[:, 2] - anchors[:, 0] + 1.0
+    heights = anchors[:, 3] - anchors[:, 1] + 1.0
+    ctr_x = anchors[:, 0] + 0.5 * (widths - 1.0)
+    ctr_y = anchors[:, 1] + 0.5 * (heights - 1.0)
+
+    dx = deltas[:, 0:1]
+    dy = deltas[:, 1:2]
+    dw = deltas[:, 2:3]
+    dh = deltas[:, 3:4]
+
+    pred_ctr_x = dx * widths[:, None] + ctr_x[:, None]
+    pred_ctr_y = dy * heights[:, None] + ctr_y[:, None]
+    pred_w = torch.exp(dw) * widths[:, None]
+    pred_h = torch.exp(dh) * heights[:, None]
+
+    pred_boxes = torch.zeros_like(deltas)
+    pred_boxes[:, 0:1] = pred_ctr_x - 0.5 * (pred_w - 1.0)
+    pred_boxes[:, 1:2] = pred_ctr_y - 0.5 * (pred_h - 1.0)
+    pred_boxes[:, 2:3] = pred_ctr_x + 0.5 * (pred_w - 1.0)
+    pred_boxes[:, 3:4] = pred_ctr_y + 0.5 * (pred_h - 1.0)
+
+    if deltas.shape[1] > 4:
+        pred_boxes[:, 4:] = deltas[:, 4:]
+
+    return pred_boxes
+
+
+def landmark_pred(anchors, deltas):
+    if anchors.shape[0] == 0:
+        return torch.zeros([0, deltas.shape[1]])
+
+    widths = anchors[:, 2] - anchors[:, 0] + 1.0
+    heights = anchors[:, 3] - anchors[:, 1] + 1.0
+    ctr_x = anchors[:, 0] + 0.5 * (widths - 1.0)
+    ctr_y = anchors[:, 1] + 0.5 * (heights - 1.0)
+
+    pred = torch.zeros_like(deltas)
+    for i in range(5):
+        pred[:, i, 0] = deltas[:, i, 0] * widths + ctr_x
+        pred[:, i, 1] = deltas[:, i, 1] * heights + ctr_y
+
+    return pred
 
 
 class RetinaFace:
@@ -75,7 +147,6 @@ class RetinaFace:
         )
 
         self.model = load_model().to(self.device)
-        self.nms = gpu_nms_wrapper(self.nms_threshold, self.ctx_id)
 
     def call(self, images, threshold=0.5):
         """Run the detection.
@@ -88,16 +159,25 @@ class RetinaFace:
 
         # Load the batch in to a `torch.Tensor` and pre-process by turning it
         # into a BGR format for the channels.
+        t0 = time.time()
         data = torch.tensor(
-            images.transpose([0, 3, 1, 2]),
-            device=self.device, dtype=torch.float32
-        ).flip(1)
+            images, device=self.device, dtype=torch.float32
+        ).permute(0, 3, 1, 2).flip(1)
+
+        torch.cuda.synchronize()
 
         # Run the images through the network.
-        net_out = [
-            output.detach().to('cpu').numpy()
-            for output in self.model(data)
-        ]
+
+        t1 = time.time()
+        print(f'    Loading {1000 * (t1 - t0):.1f}ms ({1000 * (t1 - t0) / len(images):.1f}ms/img)')
+        # TODO: Why does `eval` not `no_grad()`?
+        with torch.no_grad():
+            net_out = self.model(data)
+
+        torch.cuda.synchronize()
+
+        t2 = time.time()
+        print(f'    Model {1000 * (t2 - t1):.1f}ms ({1000 * (t2 - t1) / len(images):.1f}ms/img)')
 
         batch_objects = []
         for batch_idx in range(images.shape[0]):
@@ -115,6 +195,8 @@ class RetinaFace:
                 scores = scores[
                     [batch_idx], self._num_anchors[f'stride{s}']:, :, :
                 ]
+                # TODO: Try to use a `view` to avoid copying.
+                scores = scores.permute(0, 2, 3, 1).reshape(-1)
 
                 idx += 1
                 bbox_deltas = net_out[idx]
@@ -127,145 +209,65 @@ class RetinaFace:
 
                 anchors_fpn = self._anchors_fpn[f'stride{s}']
                 anchors = anchors_plane(height, width, stride, anchors_fpn)
-                anchors = anchors.reshape((K * A, 4))
+                anchors = torch.tensor(
+                    anchors.reshape((K * A, 4)),
+                    device=self.device
+                )
 
-                scores = self._clip_pad(scores, (height, width))
-                scores = scores.transpose((0, 2, 3, 1)).reshape((-1, 1))
-
-                bbox_deltas = self._clip_pad(bbox_deltas, (height, width))
-                bbox_deltas = bbox_deltas.transpose((0, 2, 3, 1))
+                bbox_deltas = bbox_deltas.permute(0, 2, 3, 1)
                 bbox_pred_len = bbox_deltas.shape[3] // A
-                bbox_deltas = bbox_deltas.reshape((-1, bbox_pred_len))
+                bbox_deltas = bbox_deltas.reshape(-1, bbox_pred_len)
 
-                proposals = self.bbox_pred(anchors, bbox_deltas)
-                proposals = clip_boxes(proposals, [H, W])
+                proposals = bbox_pred(anchors, bbox_deltas)
+                # TODO: See whether to do here or at the end. Or even
+                # outside. Try to use `torch.clamp`.
+                # proposals = clip_boxes(proposals, [H, W])
 
-                scores_ravel = scores.ravel()
-                order = np.where(scores_ravel >= threshold)[0]
+                order = torch.where(scores >= threshold)[0]
                 proposals = proposals[order, :]
                 scores = scores[order]
-
-                proposals_list.append(proposals)
-                scores_list.append(scores)
 
                 idx += 1
                 landmark_deltas = net_out[idx]
                 landmark_deltas = landmark_deltas[[batch_idx], ...]
 
-                landmark_deltas = self._clip_pad(
-                    landmark_deltas, (height, width)
-                )
                 landmark_pred_len = landmark_deltas.shape[1] // A
-                landmark_deltas = landmark_deltas.transpose(
-                    (0, 2, 3, 1)
-                ).reshape((-1, 5, landmark_pred_len // 5))
-                landmarks = self.landmark_pred(
-                    anchors, landmark_deltas
+                landmark_deltas = landmark_deltas.permute(0, 2, 3, 1).reshape(
+                    (-1, 5, landmark_pred_len // 5)
                 )
+                landmarks = landmark_pred(anchors, landmark_deltas)
                 landmarks = landmarks[order, :]
+
+                scores_list.append(scores)
+                proposals_list.append(proposals)
                 landmarks_list.append(landmarks)
 
-            proposals = np.vstack(proposals_list)
-            landmarks = None
+            scores = torch.cat(scores_list)
+            proposals = torch.cat(proposals_list)
+            landmarks = torch.cat(landmarks_list)
+
             if proposals.shape[0] == 0:
                 batch_objects.append([])
                 continue
 
-            scores = np.vstack(scores_list)
-            scores_ravel = scores.ravel()
-            order = scores_ravel.argsort()[::-1]
-
-            proposals = proposals[order, :]
+            # Re-order all proposals according to score.
+            order = scores.argsort(descending=True)
+            proposals = proposals[order]
             scores = scores[order]
+            landmarks = landmarks[order]
 
-            landmarks = np.vstack(landmarks_list)
-            landmarks = landmarks[order].astype(np.float32, copy=False)
-
-            pre_det = np.hstack((proposals[:, 0:4], scores)).astype(
-                np.float32, copy=False
-            )
-
-            keep = self.nms(pre_det)
-            det = np.hstack((pre_det, proposals[:, 4:]))
-            det = det[keep, :]
-            landmarks = landmarks[keep]
+            # Run the predictions through NMS.
+            keep = nms(proposals, scores, self.nms_threshold)
+            proposals = proposals[keep].to('cpu').numpy()
+            scores = scores[keep].to('cpu').numpy()
+            landmarks = landmarks[keep].to('cpu').numpy()
 
             batch_objects.append([
-                {'bbox': d[:4],  'landmarks': l, 'score': d[4]}
-                for d, l in zip(det, landmarks)
+                {'bbox': b,  'landmarks': l, 'score': s}
+                for s, b, l in zip(scores, proposals, landmarks)
             ])
 
+        t3 = time.time()
+        print(f'    Postprocess {1000 * (t3 - t2):.1f}ms ({1000 * (t3 - t2) / len(images):.1f}ms/img)')
+
         return batch_objects
-
-    @staticmethod
-    def _clip_pad(tensor, pad_shape):
-        """Clip boxes of the pad area.
-
-        :param tensor: [n, c, H, W]
-        :param pad_shape: [h, w]
-        :return: [n, c, h, w]
-        """
-        H, W = tensor.shape[2:]
-        h, w = pad_shape
-
-        if h < H or w < W:
-            tensor = tensor[:, :, :h, :w].copy()
-
-        return tensor
-
-    @staticmethod
-    def bbox_pred(boxes, box_deltas):
-        """Transform the set of class-agnostic boxes into class-specific boxes
-        by applying the predicted offsets.
-
-        :param boxes: !important [N 4]
-        :param box_deltas: [N, 4 * num_classes]
-        :return: [N 4 * num_classes]
-        """
-        if boxes.shape[0] == 0:
-            return np.zeros((0, box_deltas.shape[1]))
-
-        boxes = boxes.astype(np.float, copy=False)
-        widths = boxes[:, 2] - boxes[:, 0] + 1.0
-        heights = boxes[:, 3] - boxes[:, 1] + 1.0
-        ctr_x = boxes[:, 0] + 0.5 * (widths - 1.0)
-        ctr_y = boxes[:, 1] + 0.5 * (heights - 1.0)
-
-        dx = box_deltas[:, 0:1]
-        dy = box_deltas[:, 1:2]
-        dw = box_deltas[:, 2:3]
-        dh = box_deltas[:, 3:4]
-
-        pred_ctr_x = dx * widths[:, np.newaxis] + ctr_x[:, np.newaxis]
-        pred_ctr_y = dy * heights[:, np.newaxis] + ctr_y[:, np.newaxis]
-        pred_w = np.exp(dw) * widths[:, np.newaxis]
-        pred_h = np.exp(dh) * heights[:, np.newaxis]
-
-        pred_boxes = np.zeros(box_deltas.shape)
-        pred_boxes[:, 0:1] = pred_ctr_x - 0.5 * (pred_w - 1.0)
-        pred_boxes[:, 1:2] = pred_ctr_y - 0.5 * (pred_h - 1.0)
-        pred_boxes[:, 2:3] = pred_ctr_x + 0.5 * (pred_w - 1.0)
-        pred_boxes[:, 3:4] = pred_ctr_y + 0.5 * (pred_h - 1.0)
-
-        if box_deltas.shape[1] > 4:
-            pred_boxes[:, 4:] = box_deltas[:, 4:]
-
-        return pred_boxes
-
-    @staticmethod
-    def landmark_pred(boxes, landmark_deltas):
-        if boxes.shape[0] == 0:
-            return np.zeros((0, landmark_deltas.shape[1]))
-
-        boxes = boxes.astype(np.float, copy=False)
-        widths = boxes[:, 2] - boxes[:, 0] + 1.0
-        heights = boxes[:, 3] - boxes[:, 1] + 1.0
-        ctr_x = boxes[:, 0] + 0.5 * (widths - 1.0)
-        ctr_y = boxes[:, 1] + 0.5 * (heights - 1.0)
-
-        pred = landmark_deltas.copy()
-        for i in range(5):
-            pred[:, i, 0] = landmark_deltas[:, i, 0] * widths + ctr_x
-            pred[:, i, 1] = landmark_deltas[:, i, 1] * heights + ctr_y
-
-        return pred
