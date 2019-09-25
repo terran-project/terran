@@ -163,7 +163,9 @@ class ArcFace:
         data = torch.tensor(
             preprocessed, device=self.device, dtype=torch.float32
         )
-        features = self.model(data).detach().to('cpu').numpy()
+        with torch.no_grad():
+            features = self.model(data).cpu().numpy()
+
         features = normalize(features, axis=1)
 
         features_per_image = np.split(features, splits, axis=0)
