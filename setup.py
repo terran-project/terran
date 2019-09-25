@@ -12,6 +12,7 @@ setup(
     install_requires=[
         'click',
         'ffmpeg-python',
+        'lycon',
         'numpy',
         'torch',
         'torchvision',
