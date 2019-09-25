@@ -1,7 +1,8 @@
+import lycon
 import math
 import numpy as np
 
-from PIL import Image
+from lycon import resize
 
 from terran import default_device
 from terran.face.detection.retinaface import RetinaFace
@@ -35,13 +36,16 @@ def resize_factory(short_side=416):
                 int(W * scale), int(H * scale)
             )
 
-            resized = np.stack([
-                np.asarray(
-                    Image.fromarray(image).resize(
-                        new_size, resample=Image.BILINEAR
-                    )
-                ) for image in images
-            ], axis=0)
+            resized = np.empty(
+                (images.shape[0], new_size[1], new_size[0], images.shape[3]),
+                dtype=images.dtype
+            )
+            for idx, image in enumerate(images):
+                resize(
+                    image, output=resized[idx],
+                    width=new_size[0], height=new_size[1],
+                    interpolation=lycon.Interpolation.LINEAR
+                )
             scales = scale
         else:
             resized = []
@@ -52,10 +56,9 @@ def resize_factory(short_side=416):
                 new_size = (int(W * scale), int(H * scale))
 
                 resized.append(
-                    np.asarray(
-                        Image.fromarray(image).resize(
-                            new_size, resample=Image.BILINEAR
-                        )
+                    resize(
+                        image, width=new_size[0], height=new_size[1],
+                        interpolation=lycon.Interpolation.LINEAR
                     )
                 )
                 scales.append(scale)
