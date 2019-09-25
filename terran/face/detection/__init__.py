@@ -279,6 +279,8 @@ class Detection:
 
         # Run generic result postprocessing, such as adjusting the coordinates
         # for rescaled images.
+        # TODO: Add final validation transformer to check that all bounding
+        # boxes are valid (larger than zero dimensions and clipped to image).
         out = self.merge_out(out, merge_params)
         out = self.resize_out(out, resize_params)
 
