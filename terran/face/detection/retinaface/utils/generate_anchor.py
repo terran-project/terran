@@ -75,7 +75,7 @@ def generate_anchors_fpn(dense_anchor=False, cfg=None):
     RPN_FEAT_STRIDE = sorted(RPN_FEAT_STRIDE, reverse=True)
     anchors = []
     for k in RPN_FEAT_STRIDE:
-        v = cfg[str(k)]
+        v = cfg[k]
         bs = v["BASE_SIZE"]
         __ratios = np.array(v["RATIOS"])
         __scales = np.array(v["SCALES"])
