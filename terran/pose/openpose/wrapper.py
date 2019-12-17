@@ -10,9 +10,8 @@ from tqdm import tqdm
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from poseotron.openpose.body.model import BodyPoseModel
-
 from terran import default_device
+from terran.pose.openpose.model import BodyPoseModel
 
 
 model_url = 'https://www.dropbox.com/s/mun9eh2509pw32n/openpose_body_coco_pose_iter_440000.pth?dl=1'
@@ -132,18 +131,19 @@ def build_segments(loc_src, loc_dst, num_midpoints: int):
     return segments
 
 
-class BodyPoseEstimator:
+class OpenPose:
 
-    def __init__(self, pretrained=False):
-        self._model = BodyPoseModel()
-        if torch.cuda.is_available():
-            self._model = self._model.cuda()
-        if pretrained:
-            state_dict = _load_state_dict_from_url(model_url, model_dir)
-            self._model = _load_state_dict(self._model, state_dict)
+    def __init__(self, device=default_device):
+        self.device = device
+
+        self._model = BodyPoseModel().to(self.device)
+
+        state_dict = _load_state_dict_from_url(model_url, model_dir)
+        self._model = _load_state_dict(self._model, state_dict)
+
         self._model.eval()
 
-    def __call__(self, images):
+    def call(self, images):
         # t0 = time.time()
 
         # Add batch dimension if missing.
@@ -186,6 +186,8 @@ class BodyPoseEstimator:
 
         # torch.cuda.synchronize()
         # t3 = time.time()
+
+        # TODO: Support batch sizes.
 
         num_peaks = 0
 
@@ -412,6 +414,8 @@ class BodyPoseEstimator:
         kps = _get_keypoints(
             candidate, subset, scale=scale  # / downsampling_ratio
         )
+
+        # TODO: Not returning any score at all.
 
         # torch.cuda.synchronize()
         # t7 = time.time()
