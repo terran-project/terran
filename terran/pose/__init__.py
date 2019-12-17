@@ -96,6 +96,7 @@ def merge_factory(method='padding'):
 
                     new_poses.append({
                         'keypoints': keypoints,
+                        'score': pose['score'],
                     })
 
                 new_poses_per_image.append(new_poses)

@@ -9,6 +9,21 @@ from terran import default_device
 from terran.pose.openpose.model import BodyPoseModel
 
 
+# TODO: Change names.
+map_idx = [
+    [31, 32], [39, 40], [33, 34], [35, 36], [41, 42], [43, 44],
+    [19, 20], [21, 22], [23, 24], [25, 26], [27, 28], [29, 30],
+    [47, 48], [49, 50], [53, 54], [51, 52], [55, 56], [37, 38],
+    [45, 46]
+]
+
+limbseq = [
+    [2, 3], [2, 6], [3, 4], [4, 5], [6, 7], [7, 8], [2, 9],
+    [9, 10], [10, 11], [2, 12], [12, 13], [13, 14], [2, 1],
+    [1, 15], [15, 17], [1, 16], [16, 18], [3, 17], [6, 18]
+]
+
+
 def load_model():
     model = BodyPoseModel()
     model.load_state_dict(torch.load(
@@ -18,18 +33,55 @@ def load_model():
     return model
 
 
-def _get_keypoints(candidates, subsets, scale=1.0):
-    k = subsets.shape[0]
-    keypoints = np.zeros((k, 18, 3), dtype=np.int32)
-    for i in range(k):
+def get_keypoints(peaks_by_id, humans, scale=1.0):
+    """Build and return the final list of keypoints.
+
+    Also adjust the final keypoint coordinates to the initial image size,
+    considering the scaling factor.
+
+    Parameters
+    ----------
+    peaks_by_id : np.ndarray of shape (N_k, 3)
+        Peaks indexed by keypoint id, each row containing location and score.
+    humans : np.ndarray of shape (N_d, 20)
+        Humans found, with the corresponding keypoint ID at each of the first
+        18 locations, plus number of keypoints and scores.
+    scale : float
+        Scale the image was resized with, needed to adjust final keypoint
+        locations.
+
+    Returns
+    -------
+    List of dicts
+        Each dict corresponds to a detected human, and has two entries:
+        * `keypoints`: a `np.ndarray`s of size (N_d, 18, 3).
+        * `score`: the average score for the human's keypoints.
+
+        `keypoints` is an array containing the keypoint locations for all the
+        18 keypoints. The final axis contains the (x, y) coordinates, along
+        with a third entry indicating whether the keypoint is present or not.
+
+    """
+    detections = []
+    for human in humans:
+        keypoints = np.zeros((18, 3), dtype=np.int32)
         for j in range(18):
-            index = np.int32(subsets[i][j])
-            if index != -1:
-                y, x = candidates[index][:2]
+            peak_id = np.int32(human[j])
+            if peak_id != -1:
+                y, x = peaks_by_id[peak_id][:2]
                 y = (y.cpu().numpy() / scale).astype(np.int32)
                 x = (x.cpu().numpy() / scale).astype(np.int32)
-                keypoints[i][j] = (x, y, 1)
-    return keypoints
+                keypoints[j] = (x, y, 1)
+
+        # Average keypoint score: sum of scores over number of keypoints.
+        score = human[-2] / human[-1]
+
+        detections.append({
+            'keypoints': keypoints,
+            'score': score,
+        })
+
+    return detections
 
 
 def resize_images(images, short_side=416):
@@ -55,6 +107,7 @@ def resize_images(images, short_side=416):
 
 
 def preprocess_images(images):
+    """Preprocess images as required by the pre-trained OpenPose model."""
     # Turn into `BCHW` format.
     out = np.transpose(images, (0, 3, 1, 2))
     out = out.astype(np.float32) / 255.0 - 0.5
@@ -64,6 +117,24 @@ def preprocess_images(images):
 
 @torch.jit.script
 def build_segments(loc_src, loc_dst, num_midpoints: int):
+    """Build the `num_midpoint`-point segment between each source and
+    destination keypoints of a given limb.
+
+    Parameters
+    ----------
+    loc_src : torch.Tensor of shape (N_s, 2)
+        Locations for the keypoints of one extreme of the limb.
+    loc_dst : torch.Tensor of shape (N_d, 2)
+        Locations for the keypoints of the other extreme of the limb.
+    num_midpoints : int
+        Number of points to return per segment.
+
+    Returns
+    -------
+    torch.Tensor of shape (N_s, N_d, num_midpoints, 2)
+        Locations for each of the points between each pair of keypoints.
+
+    """
     count_src = loc_src.shape[0]
     count_dst = loc_dst.shape[0]
 
@@ -99,8 +170,32 @@ class OpenPose:
         # Keypoint thresholds.
         self.keypoint_threshold = 0.1
         self.thresh_2 = 0.05
+        self.human_threshold = 0.4
 
     def call(self, images):
+        """Run the pose estimation model and its postprocessing.
+
+        The preprocessing goes as follow:
+        - Get the heatmaps from the model to identify peaks, i.e. candidate
+          keypoint locations.
+        - Use the PAFs from the model to obtain the limbs. In order to do so,
+          for each limb, pick the pair of keypoints that maximizes the line
+          integral between both extremes of the limb.
+        - Build humans by filling in the needed limbs one by one. In case of a
+          conflict (i.e. a limb belongs to two humans), tiebreak by assigning
+          to one of them.
+
+        Parameters
+        ----------
+        images : np.ndarray of shape (N, H, W, C)
+            Batch of images to run model through.
+
+        Returns
+        -------
+        List of humans detected by batch. Each person is specified by a
+        `np.ndarry` of shape (18, 3).
+
+        """
         resized, scale = resize_images(images, short_side=self.short_side)
         preprocessed = preprocess_images(resized)
 
@@ -122,13 +217,14 @@ class OpenPose:
 
         batch_objects = []
         for heatmaps, pafs in zip(batch_heatmaps, batch_pafs):
-            num_peaks = 0
 
+            # Start by obtaining the peak locations for every keypoint, by
+            # looking at the returned heatmap.
+            num_peaks = 0
             peak_locs = []
             peak_scores = []
             peak_ids = []
 
-            # TODO: Why 18 and not 19?
             for part in range(18):
                 heatmap = heatmaps[part, :, :]
 
@@ -158,28 +254,26 @@ class OpenPose:
 
                 num_peaks += curr_num_peaks
 
-            map_idx = [
-                [31, 32], [39, 40], [33, 34], [35, 36], [41, 42], [43, 44],
-                [19, 20], [21, 22], [23, 24], [25, 26], [27, 28], [29, 30],
-                [47, 48], [49, 50], [53, 54], [51, 52], [55, 56], [37, 38],
-                [45, 46]
-            ]
-            limbseq = [
-                [2, 3], [2, 6], [3, 4], [4, 5], [6, 7], [7, 8], [2, 9],
-                [9, 10], [10, 11], [2, 12], [12, 13], [13, 14], [2, 1],
-                [1, 15], [15, 17], [1, 16], [16, 18], [3, 17], [6, 18]
-            ]
+            # Now build the limbs out of the detected keypoints.
 
+            # `all_connections` will be a list containing number-of-limbs
+            # elements, each with a list of connections for said limb. Within
+            # those list, the connection is represented by a 3-tuple of the
+            # peak IDs of both extremes and the limb score.
             all_connections = []
-            spl_k = []
+            missing_limbs = []
             num_midpoints = 10
 
-            for k in range(len(map_idx)):
-                paf = pafs[[x - 19 for x in map_idx[k]], :, :]
+            for limb_id in range(len(map_idx)):
+                # Calculate line integrals between each source and destination
+                # keypoints for the current limb. Get the segments between the
+                # points, the directions, and multiply by the values of the
+                # vector field.
+                paf = pafs[[x - 19 for x in map_idx[limb_id]], :, :]
 
                 # Keypoint IDs for limb.
-                kpid_src = limbseq[k][0] - 1
-                kpid_dst = limbseq[k][1] - 1
+                kpid_src = limbseq[limb_id][0] - 1
+                kpid_dst = limbseq[limb_id][1] - 1
 
                 loc_src = peak_locs[kpid_src]
                 loc_dst = peak_locs[kpid_dst]
@@ -188,8 +282,8 @@ class OpenPose:
                 count_dst = loc_dst.shape[0]
 
                 if count_src == 0 or count_dst == 0:
-                    spl_k.append(k)
-                    all_connections.append([])
+                    missing_limbs.append(limb_id)
+                    all_connections.append(())
                     continue
 
                 directions = (
@@ -198,6 +292,8 @@ class OpenPose:
                 norms = torch.norm(directions, dim=2)
                 directions = directions / norms[..., None]
 
+                # Cast it to `torch.long` so we transform it into PAF
+                # locations, for easy evaluation.
                 segments = build_segments(
                     loc_src, loc_dst, num_midpoints
                 ).type(torch.long)
@@ -232,7 +328,9 @@ class OpenPose:
                 connections = []
                 seen = set()
 
-                # TODO: Improve this part.
+                # Perform the actual matching by greedily building connections
+                # with the highest-scoring pairs.
+                # TODO: Improve from this part onwards..
                 for match in matching.cpu().numpy()[
                     np.argsort(-matching_scores.cpu().numpy())
                 ]:
@@ -260,85 +358,121 @@ class OpenPose:
 
                 all_connections.append(connections)
 
-            candidate = np.array([
+            # Build each person by progressively merging the found limbs.
+
+            # Peak location and score, indexed by ID.
+            peaks_by_id = np.array([
                 tuple(p) + (sc,)
                 for pks, scs in zip(peak_locs, peak_scores)
                 for p, sc in zip(pks, scs)
             ])
-            subset = np.ones((0, 20)) * -1
 
-            for k in range(len(map_idx)):
-                if k in spl_k:
+            # First 18 entries are the keypoints, following one is the number
+            # of keypoints, and the last one is the sum of the connection
+            # scores.
+            humans = np.ones((0, 20)) * -1
+
+            for limb_id in range(len(map_idx)):
+                if limb_id in missing_limbs:
                     continue
 
-                part_As = all_connections[k][:, 0]
-                part_Bs = all_connections[k][:, 1]
-                index_A, index_B = np.array(limbseq[k]) - 1
+                peak_src = all_connections[limb_id][:, 0]
+                peak_dst = all_connections[limb_id][:, 1]
+                kpid_src, kpid_dst = np.array(limbseq[limb_id]) - 1
 
-                for i in range(len(all_connections[k])):
-                    found = 0
-                    subset_idx = [-1, -1]
-                    for j in range(len(subset)):
+                for conn_idx in range(len(all_connections[limb_id])):
+
+                    # Check for matches of the current connection with existing
+                    # humans. By construction, up to two matches may occur.
+                    matched_with = []
+                    for human_idx, human in enumerate(humans):
                         if (
-                            subset[j][index_A] == part_As[i]
-                            or subset[j][index_B] == part_Bs[i]
+                            human[kpid_src] == peak_src[conn_idx]
+                            or human[kpid_dst] == peak_dst[conn_idx]
                         ):
-                            subset_idx[found] = j
-                            found += 1
+                            matched_with.append(human_idx)
 
-                    if found == 1:
-                        j = subset_idx[0]
-                        if subset[j][index_B] != part_Bs[i]:
-                            subset[j][index_B] = part_Bs[i]
-                            subset[j][-1] += 1
-                            subset[j][-2] += (
-                                candidate[part_Bs[i].astype(int), 2]
-                                + all_connections[k][i][2]
+                    if len(matched_with) == 1:
+                        # There was a match with only one human. Add the
+                        # destination keypoint to it. We don't add the source
+                        # keypoint, as it must have been added already, due to
+                        # the limbs being iterated in order.
+                        human = humans[matched_with[0]]
+                        if human[kpid_dst] != peak_dst[conn_idx]:
+                            human[kpid_dst] = peak_dst[conn_idx]
+                            human[-1] += 1
+                            human[-2] += (
+                                peaks_by_id[peak_dst[conn_idx].astype(int), 2]
+                                + all_connections[limb_id][conn_idx][2]
                             )
-                    elif found == 2:
-                        j1, j2 = subset_idx
+
+                    elif len(matched_with) == 2:
+                        human_1_idx, human_2_idx = matched_with
+                        human_1 = humans[human_1_idx]
+                        human_2 = humans[human_2_idx]
+
+                        # Check the number of keypoints present in both humans
+                        # matched. If they're non-overlapping, then we're
+                        # connecting two human parts, so merge them into a
+                        # single human.
                         membership = (
-                            (subset[j1] >= 0).astype(int)
-                            + (subset[j2] >= 0).astype(int)
+                            (human_1 >= 0).astype(int)
+                            + (human_2 >= 0).astype(int)
                         )[:-2]
-                        if len(np.nonzero(membership == 2)[0]) == 0:
-                            subset[j1][:-2] += (subset[j2][:-2] + 1)
-                            subset[j1][-2:] += subset[j2][-2:]
-                            subset[j1][-2] += all_connections[k][i][2]
-                            subset = np.delete(subset, j2, 0)
-                        else:
-                            subset[j1][index_B] = part_Bs[i]
-                            subset[j1][-1] += 1
-                            subset[j1][-2] += (
-                                candidate[part_Bs[i].astype(int), 2]
-                                + all_connections[k][i][2]
+                        non_overlapping = (
+                            len(np.flatnonzero(membership == 2)) == 0
+                        )
+                        if non_overlapping:
+                            # Merge both humans and sum the number of keypoints
+                            # and scores.
+                            # The `+1` because absence of the limb is marked as
+                            # `-1`.
+                            human_1[:-2] += (human_2[:-2] + 1)
+                            human_1[-2:] += human_2[-2:]
+                            human_1[-2] += (
+                                all_connections[limb_id][conn_idx][2]
                             )
-                    elif not found and k < 17:
-                        row = np.ones(20) * -1
-                        row[index_A] = part_As[i]
-                        row[index_B] = part_Bs[i]
-                        row[-1] = 2
-                        row[-2] = sum(
-                            candidate[all_connections[k][i, :2].astype(int), 2]
-                        ) + all_connections[k][i][2]
-                        subset = np.vstack([subset, row])
+                            humans = np.delete(humans, human_2_idx, 0)
+                        else:
+                            # There's a conflict, as the people overlap.
+                            # Tiebreak by adding the connection into the first
+                            # one.
+                            human_1[kpid_dst] = peak_dst[conn_idx]
+                            human_1[-1] += 1
+                            human_1[-2] += (
+                                peaks_by_id[peak_dst[conn_idx].astype(int), 2]
+                                + all_connections[limb_id][conn_idx][2]
+                            )
 
-            del_idx = []
-            for i in range(len(subset)):
-                if subset[i][-1] < 4 or subset[i][-2] / subset[i][-1] < 0.4:
-                    del_idx.append(i)
-            subset = np.delete(subset, del_idx, axis=0)
+                    elif not matched_with and limb_id < 17:
+                        # New human found, add a row.
+                        human = np.ones(20) * -1
+                        human[kpid_src] = peak_src[conn_idx]
+                        human[kpid_dst] = peak_dst[conn_idx]
+                        human[-1] = 2
+                        human[-2] = sum(
+                            peaks_by_id[
+                                all_connections[limb_id][
+                                    conn_idx, :2
+                                ].astype(int),
+                                2
+                            ]
+                        ) + all_connections[limb_id][conn_idx][2]
+                        humans = np.vstack([humans, human])
 
-            # Adjust the final keypoint coordinates to the initial image size,
-            # considering the scaling factor and the downsampling ratio of the
-            # network.
-            kps = _get_keypoints(
-                candidate, subset, scale=scale
+            # Delete all detected humans with less than four keypoints and an
+            # average keypoint score less than `0.4`.
+            to_delete = []
+            for human_idx, human in enumerate(humans):
+                num_keypoints = human[-1]
+                avg_score = human[-2] / human[-1]
+                if num_keypoints < 4 or avg_score < self.human_threshold:
+                    to_delete.append(human_idx)
+            humans = np.delete(humans, to_delete, axis=0)
+
+            # Build the final list of keypoints.
+            batch_objects.append(
+                get_keypoints(peaks_by_id, humans, scale=scale)
             )
-
-            # TODO: Not returning any score at all.
-            batch_objects.append([
-                {'keypoints': kp} for kp in kps
-            ])
 
         return batch_objects
