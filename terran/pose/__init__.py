@@ -1,3 +1,4 @@
+import math
 import numpy as np
 
 from terran import default_device
@@ -15,6 +16,97 @@ POSE_ESTIMATION_MODELS = {
     # Models.
     'openpose': OpenPose,
 }
+
+
+# TODO: This is *almost* like `terran.face.detection.merge_factory`. Unify them
+# so we don't repeat so much code.
+def merge_factory(method='padding'):
+    """Merges a list of images into a single array.
+
+    May do so by padding or cropping images. See `Estimation` for more
+    information on the options.
+    """
+
+    def merge_in(images):
+        # Check if not merged already and return early.
+        if isinstance(images, np.ndarray):
+            return images, {'merged': False}
+
+        # TODO: Why is this commented?
+        # if len(images) == 1:
+        #     return np.array(images), {'merged': False}
+
+        params = {'merged': True}
+
+        if method == 'crop':
+            raise NotImplementedError
+        elif method == 'padding':
+            max_height = max([arr.shape[0] for arr in images])
+            max_width = max([arr.shape[1] for arr in images])
+            padded = np.zeros(
+                (len(images), max_height, max_width, 3),
+                dtype=np.uint8
+            )
+
+            pads_per_image = []
+            for idx, image in enumerate(images):
+                diff_height = max(0, (max_height - image.shape[0]) / 2)
+                diff_width = max(0, (max_width - image.shape[1]) / 2)
+                pad_values = [
+                    (
+                        int(math.ceil(diff_height)),
+                        int(math.floor(diff_height))
+                    ),
+                    (
+                        int(math.ceil(diff_width)),
+                        int(math.floor(diff_width))
+                    ),
+                    (0, 0),
+                ]
+                padded[idx, ...] = np.pad(image, pad_values)
+                pads_per_image.append(pad_values)
+
+            params['pads_per_image'] = pads_per_image
+            return padded, params
+        else:
+            raise ValueError(
+                'Invalid `method` set, options are `padding` or `crop`.'
+            )
+
+    def merge_out(poses_per_image, params):
+        # If no merging occur, we have nothing to adjust.
+        if not params['merged']:
+            return poses_per_image
+
+        if method == 'crop':
+            raise NotImplementedError
+        elif method == 'padding':
+            new_poses_per_image = []
+            for poses, pads in zip(poses_per_image, params['pads_per_image']):
+
+                new_poses = []
+                for pose in poses:
+                    pads_per_axis = np.array([
+                        pads[1][0], pads[0][0], 0
+                    ]).reshape(1, -1)
+                    keypoints = (
+                        pose['keypoints'] - pads_per_axis
+                    )
+                    keypoints[keypoints[..., 2] == 0] = 0
+
+                    new_poses.append({
+                        'keypoints': keypoints,
+                    })
+
+                new_poses_per_image.append(new_poses)
+
+            return new_poses_per_image
+        else:
+            raise ValueError(
+                'Invalid `method` set, options are `padding` or `crop`.'
+            )
+
+    return merge_in, merge_out
 
 
 class Estimation:
@@ -69,6 +161,8 @@ class Estimation:
             ) if not lazy else None
         )
 
+        self.merge_in, self.merge_out = merge_factory(method=merge_method)
+
     def __call__(self, images):
         """Performs pose estimation on `images`.
 
@@ -92,6 +186,10 @@ class Estimation:
             expanded = True
             images = np.expand_dims(images, 0)
 
+        # Run generic image preprocessing, such as merging a list of images
+        # into a single numpy array.
+        images, merge_params = self.merge_in(images)
+
         # Call the actual model on the images. If we haven't loaded the model
         # yet due to lazy loading, load it.
         if self.model is None:
@@ -100,8 +198,10 @@ class Estimation:
             )
         out = self.model.call(images)
 
-        # return out[0] if expanded else out
-        return out if expanded else out
+        # Run the generic image postprocessing.
+        out = self.merge_out(out, merge_params)
+
+        return out[0] if expanded else out
 
 
 pose_estimation = Estimation(lazy=True)
