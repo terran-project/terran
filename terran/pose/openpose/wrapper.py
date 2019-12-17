@@ -91,7 +91,6 @@ class OpenPose:
         self.device = device
         self.model = load_model().to(self.device)
 
-        # Optimal seems to be 386 actually, but twice as slow.
         self.short_side = short_side
 
         # Downsampling ratio for the model in use.
@@ -102,285 +101,244 @@ class OpenPose:
         self.thresh_2 = 0.05
 
     def call(self, images):
-        # t0 = time.time()
-
-        # Add batch dimension if missing.
-        if len(images.shape) == 3:
-            images = np.expand_dims(images, 0)
-
         resized, scale = resize_images(images, short_side=self.short_side)
         preprocessed = preprocess_images(resized)
 
-        # torch.cuda.synchronize()
-        # t1 = time.time()
-
         with torch.no_grad():
-            pafs, heatmaps = self.model(preprocessed)
+            batch_pafs, batch_heatmaps = self.model(preprocessed)
 
-        # torch.cuda.synchronize()
-        # t2 = time.time()
-
-        # TODO: Resizing to `resized` size. Could be to full image size so that
-        # the results are even more exact.
         # TODO: Not adding padding, so it won't detect keypoints in the right
         # border of the image.
-        pafs = torch.nn.functional.interpolate(
-            pafs,
+        batch_pafs = torch.nn.functional.interpolate(
+            batch_pafs,
             scale_factor=self.downsampling_ratio,
             mode='bicubic', align_corners=False,
         )
-        heatmaps = torch.nn.functional.interpolate(
-            heatmaps,
+        batch_heatmaps = torch.nn.functional.interpolate(
+            batch_heatmaps,
             scale_factor=self.downsampling_ratio,
             mode='bicubic', align_corners=False,
         )
 
-        # torch.cuda.synchronize()
-        # t3 = time.time()
+        batch_objects = []
+        for heatmaps, pafs in zip(batch_heatmaps, batch_pafs):
+            num_peaks = 0
 
-        # TODO: Support batch sizes.
+            peak_locs = []
+            peak_scores = []
+            peak_ids = []
 
-        num_peaks = 0
+            # TODO: Why 18 and not 19?
+            for part in range(18):
+                heatmap = heatmaps[part, :, :]
 
-        peak_locs = []
-        peak_scores = []
-        peak_ids = []
+                # Search for local optima. Consider a 1px padding around the
+                # map, as we need to make sure it's larger than any surrounding
+                # coord.
+                peaks_binary = (
+                    (heatmap[1:-1, 1:-1] >= heatmap[0:-2, 1:-1])
+                    & (heatmap[1:-1, 1:-1] >= heatmap[1:-1, :-2])
+                    & (heatmap[1:-1, 1:-1] >= heatmap[2:, 1:-1])
+                    & (heatmap[1:-1, 1:-1] >= heatmap[1:-1, 2:])
+                    & (heatmap[1:-1, 1:-1] >= self.keypoint_threshold)
+                )
 
-        # TODO: Why 18 and not 19?
-        for part in range(18):
-            heatmap = heatmaps[:, part:part + 1, :, :]
+                # Add one to the coordinates to account for the 1px padding.
+                curr_peaks = torch.nonzero(peaks_binary) + 1
+                curr_num_peaks = curr_peaks.shape[0]
 
-            # First index is the batch, second the 1-channel dimension.
-            heatmap = heatmap[0, 0]
+                curr_peak_ids = torch.arange(
+                    num_peaks, num_peaks + curr_num_peaks
+                )
+                curr_scores = heatmap[curr_peaks[:, 0], curr_peaks[:, 1]]
 
-            # Search for local optima. Consider a 1px padding around the map,
-            # as we need to make sure it's larger than any surrounding coord.
-            peaks_binary = (
-                (heatmap[1:-1, 1:-1] >= heatmap[0:-2, 1:-1])
-                & (heatmap[1:-1, 1:-1] >= heatmap[1:-1, :-2])
-                & (heatmap[1:-1, 1:-1] >= heatmap[2:, 1:-1])
-                & (heatmap[1:-1, 1:-1] >= heatmap[1:-1, 2:])
-                & (heatmap[1:-1, 1:-1] >= self.keypoint_threshold)
-            )
+                peak_locs.append(curr_peaks)
+                peak_scores.append(curr_scores)
+                peak_ids.append(curr_peak_ids)
 
-            # Add one to the coordinates to account for the 1px padding.
-            curr_peaks = torch.nonzero(peaks_binary) + 1
-            curr_num_peaks = curr_peaks.shape[0]
+                num_peaks += curr_num_peaks
 
-            curr_peak_ids = torch.arange(
-                num_peaks, num_peaks + curr_num_peaks
-            )
-            curr_scores = heatmap[curr_peaks[:, 0], curr_peaks[:, 1]]
+            map_idx = [
+                [31, 32], [39, 40], [33, 34], [35, 36], [41, 42], [43, 44],
+                [19, 20], [21, 22], [23, 24], [25, 26], [27, 28], [29, 30],
+                [47, 48], [49, 50], [53, 54], [51, 52], [55, 56], [37, 38],
+                [45, 46]
+            ]
+            limbseq = [
+                [2, 3], [2, 6], [3, 4], [4, 5], [6, 7], [7, 8], [2, 9],
+                [9, 10], [10, 11], [2, 12], [12, 13], [13, 14], [2, 1],
+                [1, 15], [15, 17], [1, 16], [16, 18], [3, 17], [6, 18]
+            ]
 
-            peak_locs.append(curr_peaks)
-            peak_scores.append(curr_scores)
-            peak_ids.append(curr_peak_ids)
+            all_connections = []
+            spl_k = []
+            num_midpoints = 10
 
-            num_peaks += curr_num_peaks
+            for k in range(len(map_idx)):
+                paf = pafs[[x - 19 for x in map_idx[k]], :, :]
 
-        map_idx = [
-            [31, 32], [39, 40], [33, 34], [35, 36], [41, 42], [43, 44],
-            [19, 20], [21, 22], [23, 24], [25, 26], [27, 28], [29, 30],
-            [47, 48], [49, 50], [53, 54], [51, 52], [55, 56], [37, 38],
-            [45, 46]
-        ]
-        limbseq = [
-            [2, 3], [2, 6], [3, 4], [4, 5], [6, 7], [7, 8], [2, 9], [9, 10],
-            [10, 11], [2, 12], [12, 13], [13, 14], [2, 1], [1, 15], [15, 17],
-            [1, 16], [16, 18], [3, 17], [6, 18]
-        ]
+                # Keypoint IDs for limb.
+                kpid_src = limbseq[k][0] - 1
+                kpid_dst = limbseq[k][1] - 1
 
-        # torch.cuda.synchronize()
-        # t4 = time.time()
+                loc_src = peak_locs[kpid_src]
+                loc_dst = peak_locs[kpid_dst]
 
-        all_connections = []
-        spl_k = []
-        num_midpoints = 10
+                count_src = loc_src.shape[0]
+                count_dst = loc_dst.shape[0]
 
-        # tgg = 0
-        for k in range(len(map_idx)):
-            paf = pafs[0, [x - 19 for x in map_idx[k]], :, :]
+                if count_src == 0 or count_dst == 0:
+                    spl_k.append(k)
+                    all_connections.append([])
+                    continue
 
-            # Keypoint IDs for limb.
-            kpid_src = limbseq[k][0] - 1
-            kpid_dst = limbseq[k][1] - 1
+                directions = (
+                    loc_dst.reshape(1, -1, 2) - loc_src.reshape(-1, 1, 2)
+                ).type(torch.float32)
+                norms = torch.norm(directions, dim=2)
+                directions = directions / norms[..., None]
 
-            loc_src = peak_locs[kpid_src]
-            loc_dst = peak_locs[kpid_dst]
+                segments = build_segments(
+                    loc_src, loc_dst, num_midpoints
+                ).type(torch.long)
 
-            count_src = loc_src.shape[0]
-            count_dst = loc_dst.shape[0]
+                midpoint_scores = torch.mul(
+                    paf[
+                        :, segments[..., 0], segments[..., 1]
+                    ].permute(3, 0, 1, 2),
+                    # Flip the directions, as the network output is in `(x, y)`
+                    # and our `directions` vector in `(y, x)`.
+                    torch.flip(directions.permute(2, 0, 1), dims=(0,))
+                ).sum(dim=1)
 
-            if count_src == 0 or count_dst == 0:
-                spl_k.append(k)
-                all_connections.append([])
-                continue
+                # Score with length regularization.
+                # TODO: Where does this heuristic come from? Does it have to be
+                # like this? Why heigth and not width?
+                reg_scores = (
+                    midpoint_scores.sum(dim=0) / midpoint_scores.shape[0]
+                    + torch.clamp(0.5 * pafs.shape[1] / norms - 1, max=0)
+                )
 
-            directions = (
-                loc_dst.reshape(1, -1, 2) - loc_src.reshape(-1, 1, 2)
-            ).type(torch.float32)
-            norms = torch.norm(directions, dim=2)
-            directions = directions / norms[..., None]
+                criterion_1 = (
+                    (
+                        midpoint_scores > self.thresh_2
+                    ).sum(dim=0) > 0.8 * num_midpoints
+                )
+                criterion_2 = (reg_scores > 0)
 
-            # tg = time.time()
-            segments = build_segments(
-                loc_src, loc_dst, num_midpoints
-            ).type(torch.long)
-            # tgg += time.time() - tg
+                matching = (criterion_1 & criterion_2).nonzero()
+                matching_scores = reg_scores[matching[:, 0], matching[:, 1]]
 
-            midpoint_scores = torch.mul(
-                paf[
-                    :, segments[..., 0], segments[..., 1]
-                ].permute(3, 0, 1, 2),
-                # Flip the directions, as the network output is in `(x, y)` and
-                # our `directions` vector in `(y, x)`.
-                torch.flip(directions.permute(2, 0, 1), dims=(0,))
-            ).sum(dim=1)
+                connections = []
+                seen = set()
 
-            # Score with length regularization.
-            # TODO: Where does this heuristic come from? Does it have to be
-            # like this? Why heigth and not width?
-            reg_scores = (
-                midpoint_scores.sum(dim=0) / midpoint_scores.shape[0]
-                + torch.clamp(0.5 * pafs.shape[2] / norms - 1, max=0)
-            )
-
-            criterion_1 = (
-                (
-                    midpoint_scores > self.thresh_2
-                ).sum(dim=0) > 0.8 * num_midpoints
-            )
-            criterion_2 = (reg_scores > 0)
-
-            matching = (criterion_1 & criterion_2).nonzero()
-            matching_scores = reg_scores[matching[:, 0], matching[:, 1]]
-
-            connections = []
-            seen = set()
-
-            # TODO: Improve this part.
-            for match in matching.cpu().numpy()[
-                np.argsort(-matching_scores.cpu().numpy())
-            ]:
-                i, j = match
-                s = reg_scores[i, j].cpu().numpy()
-                if i not in seen and j not in seen:
-                    connections.append(
-                        np.array([
-                            peak_ids[kpid_src][i],
-                            peak_ids[kpid_dst][j],
-                            s
-                        ])
-                    )
-
-                    if len(connections) >= min(count_src, count_dst):
-                        break
-
-                    seen.add(i)
-                    seen.add(j)
-
-            if connections:
-                connections = np.stack(connections)
-            else:
-                connections = np.zeros((0, 3))
-
-            all_connections.append(connections)
-
-        candidate = np.array([
-            tuple(p) + (sc,)
-            for pks, scs in zip(peak_locs, peak_scores)
-            for p, sc in zip(pks, scs)
-        ])
-        subset = np.ones((0, 20)) * -1
-
-        # torch.cuda.synchronize()
-        # t5 = time.time()
-
-        for k in range(len(map_idx)):
-            if k in spl_k:
-                continue
-
-            part_As = all_connections[k][:, 0]
-            part_Bs = all_connections[k][:, 1]
-            index_A, index_B = np.array(limbseq[k]) - 1
-
-            for i in range(len(all_connections[k])):
-                found = 0
-                subset_idx = [-1, -1]
-                for j in range(len(subset)):
-                    if (
-                        subset[j][index_A] == part_As[i]
-                        or subset[j][index_B] == part_Bs[i]
-                    ):
-                        subset_idx[found] = j
-                        found += 1
-
-                if found == 1:
-                    j = subset_idx[0]
-                    if subset[j][index_B] != part_Bs[i]:
-                        subset[j][index_B] = part_Bs[i]
-                        subset[j][-1] += 1
-                        subset[j][-2] += (
-                            candidate[part_Bs[i].astype(int), 2]
-                            + all_connections[k][i][2]
+                # TODO: Improve this part.
+                for match in matching.cpu().numpy()[
+                    np.argsort(-matching_scores.cpu().numpy())
+                ]:
+                    i, j = match
+                    s = reg_scores[i, j].cpu().numpy()
+                    if i not in seen and j not in seen:
+                        connections.append(
+                            np.array([
+                                peak_ids[kpid_src][i],
+                                peak_ids[kpid_dst][j],
+                                s
+                            ])
                         )
-                elif found == 2:
-                    j1, j2 = subset_idx
-                    membership = (
-                        (subset[j1] >= 0).astype(int)
-                        + (subset[j2] >= 0).astype(int)
-                    )[:-2]
-                    if len(np.nonzero(membership == 2)[0]) == 0:
-                        subset[j1][:-2] += (subset[j2][:-2] + 1)
-                        subset[j1][-2:] += subset[j2][-2:]
-                        subset[j1][-2] += all_connections[k][i][2]
-                        subset = np.delete(subset, j2, 0)
-                    else:
-                        subset[j1][index_B] = part_Bs[i]
-                        subset[j1][-1] += 1
-                        subset[j1][-2] += (
-                            candidate[part_Bs[i].astype(int), 2]
-                            + all_connections[k][i][2]
-                        )
-                elif not found and k < 17:
-                    row = np.ones(20) * -1
-                    row[index_A] = part_As[i]
-                    row[index_B] = part_Bs[i]
-                    row[-1] = 2
-                    row[-2] = sum(
-                        candidate[all_connections[k][i, :2].astype(int), 2]
-                    ) + all_connections[k][i][2]
-                    subset = np.vstack([subset, row])
 
-        # torch.cuda.synchronize()
-        # t6 = time.time()
+                        if len(connections) >= min(count_src, count_dst):
+                            break
 
-        del_idx = []
-        for i in range(len(subset)):
-            if subset[i][-1] < 4 or subset[i][-2] / subset[i][-1] < 0.4:
-                del_idx.append(i)
-        subset = np.delete(subset, del_idx, axis=0)
+                        seen.add(i)
+                        seen.add(j)
 
-        # Adjust the final keypoint coordinates to the initial image size,
-        # considering the scaling factor and the downsampling ratio of the
-        # network.
-        kps = _get_keypoints(
-            candidate, subset, scale=scale  # / downsampling_ratio
-        )
+                if connections:
+                    connections = np.stack(connections)
+                else:
+                    connections = np.zeros((0, 3))
 
-        # TODO: Not returning any score at all.
+                all_connections.append(connections)
 
-        # torch.cuda.synchronize()
-        # t7 = time.time()
+            candidate = np.array([
+                tuple(p) + (sc,)
+                for pks, scs in zip(peak_locs, peak_scores)
+                for p, sc in zip(pks, scs)
+            ])
+            subset = np.ones((0, 20)) * -1
 
-        # print(f't1 = {t1 - t0:.3f}s')
-        # print(f't2 = {t2 - t1:.3f}s')
-        # print(f't3 = {t3 - t2:.3f}s')
-        # print(f't4 = {t4 - t3:.3f}s')
-        # print(f't5 = {t5 - t4:.3f}s')
-        # print(f'(tg = {tgg:.3f})s')
-        # print(f't6 = {t6 - t5:.3f}s')
-        # print(f't7 = {t7 - t6:.3f}s')
-        # print(f'total = {t7 - t0:.3f}s')
+            for k in range(len(map_idx)):
+                if k in spl_k:
+                    continue
 
-        return kps
+                part_As = all_connections[k][:, 0]
+                part_Bs = all_connections[k][:, 1]
+                index_A, index_B = np.array(limbseq[k]) - 1
+
+                for i in range(len(all_connections[k])):
+                    found = 0
+                    subset_idx = [-1, -1]
+                    for j in range(len(subset)):
+                        if (
+                            subset[j][index_A] == part_As[i]
+                            or subset[j][index_B] == part_Bs[i]
+                        ):
+                            subset_idx[found] = j
+                            found += 1
+
+                    if found == 1:
+                        j = subset_idx[0]
+                        if subset[j][index_B] != part_Bs[i]:
+                            subset[j][index_B] = part_Bs[i]
+                            subset[j][-1] += 1
+                            subset[j][-2] += (
+                                candidate[part_Bs[i].astype(int), 2]
+                                + all_connections[k][i][2]
+                            )
+                    elif found == 2:
+                        j1, j2 = subset_idx
+                        membership = (
+                            (subset[j1] >= 0).astype(int)
+                            + (subset[j2] >= 0).astype(int)
+                        )[:-2]
+                        if len(np.nonzero(membership == 2)[0]) == 0:
+                            subset[j1][:-2] += (subset[j2][:-2] + 1)
+                            subset[j1][-2:] += subset[j2][-2:]
+                            subset[j1][-2] += all_connections[k][i][2]
+                            subset = np.delete(subset, j2, 0)
+                        else:
+                            subset[j1][index_B] = part_Bs[i]
+                            subset[j1][-1] += 1
+                            subset[j1][-2] += (
+                                candidate[part_Bs[i].astype(int), 2]
+                                + all_connections[k][i][2]
+                            )
+                    elif not found and k < 17:
+                        row = np.ones(20) * -1
+                        row[index_A] = part_As[i]
+                        row[index_B] = part_Bs[i]
+                        row[-1] = 2
+                        row[-2] = sum(
+                            candidate[all_connections[k][i, :2].astype(int), 2]
+                        ) + all_connections[k][i][2]
+                        subset = np.vstack([subset, row])
+
+            del_idx = []
+            for i in range(len(subset)):
+                if subset[i][-1] < 4 or subset[i][-2] / subset[i][-1] < 0.4:
+                    del_idx.append(i)
+            subset = np.delete(subset, del_idx, axis=0)
+
+            # Adjust the final keypoint coordinates to the initial image size,
+            # considering the scaling factor and the downsampling ratio of the
+            # network.
+            kps = _get_keypoints(
+                candidate, subset, scale=scale
+            )
+
+            # TODO: Not returning any score at all.
+            batch_objects.append([
+                {'keypoints': kp} for kp in kps
+            ])
+
+        return batch_objects
