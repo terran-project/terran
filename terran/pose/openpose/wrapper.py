@@ -1,66 +1,20 @@
 import numpy as np
 import lycon
 import os
-import shutil
-import tempfile
 import torch
 
 from lycon import resize
-from tqdm import tqdm
-from urllib.parse import urlparse
-from urllib.request import urlopen
 
 from terran import default_device
 from terran.pose.openpose.model import BodyPoseModel
 
 
-model_url = 'https://www.dropbox.com/s/mun9eh2509pw32n/openpose_body_coco_pose_iter_440000.pth?dl=1'
-model_dir = os.path.join(os.path.expanduser('~'), '.cache/torch/checkpoints/')
-
-
-def _download_url_to_file(url, path, progress=True):
-    link = urlopen(url)
-    meta = link.info()
-    content_length = meta.get_all('Content-Length')
-    if content_length is not None and len(content_length) > 0:
-        file_size = int(content_length[0])
-    else:
-        file_size = None
-    temp_file = tempfile.NamedTemporaryFile(delete=False)
-    try:
-        with tqdm(total=file_size, disable=not progress,
-                  unit='B', unit_scale=True, unit_divisor=1024) as pbar:
-            while True:
-                buffer = link.read(8192)
-                if len(buffer) == 0:
-                    break
-                temp_file.write(buffer)
-                pbar.update(len(buffer))
-        temp_file.close()
-        shutil.move(temp_file.name, path)
-    finally:
-        temp_file.close()
-        if os.path.exists(temp_file.name):
-            os.remove(temp_file.name)
-
-
-def _load_state_dict_from_url(model_url, model_dir, progress=True):
-    if not os.path.isdir(model_dir):
-        os.makedirs(model_dir)
-    urlparts = urlparse(model_url)
-    filename = os.path.basename(urlparts.path.split('/')[-1])
-    cached_file = os.path.join(model_dir, filename)
-    if not os.path.isfile(cached_file):
-        print(f'Downloading: "{model_url}" to {cached_file}')
-        _download_url_to_file(model_url, cached_file, progress)
-    return torch.load(cached_file)
-
-
-def _load_state_dict(model, state_dict):
-    model_state_dict = {}
-    for name in model.state_dict().keys():
-        model_state_dict[name] = state_dict['.'.join(name.split('.')[1:])]
-    model.load_state_dict(model_state_dict)
+def load_model():
+    model = BodyPoseModel()
+    model.load_state_dict(torch.load(
+        os.path.expanduser('~/.terran/checkpoints/openpose-body.pth')
+    ))
+    model.eval()
     return model
 
 
@@ -135,13 +89,7 @@ class OpenPose:
 
     def __init__(self, device=default_device):
         self.device = device
-
-        self._model = BodyPoseModel().to(self.device)
-
-        state_dict = _load_state_dict_from_url(model_url, model_dir)
-        self._model = _load_state_dict(self._model, state_dict)
-
-        self._model.eval()
+        self.model = load_model().to(self.device)
 
     def call(self, images):
         # t0 = time.time()
@@ -164,7 +112,7 @@ class OpenPose:
         # t1 = time.time()
 
         with torch.no_grad():
-            pafs, heatmaps = self._model(preprocessed)
+            pafs, heatmaps = self.model(preprocessed)
 
         # torch.cuda.synchronize()
         # t2 = time.time()
