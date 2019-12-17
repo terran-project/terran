@@ -87,9 +87,19 @@ def build_segments(loc_src, loc_dst, num_midpoints: int):
 
 class OpenPose:
 
-    def __init__(self, device=default_device):
+    def __init__(self, device=default_device, short_side=184):
         self.device = device
         self.model = load_model().to(self.device)
+
+        # Optimal seems to be 386 actually, but twice as slow.
+        self.short_side = short_side
+
+        # Downsampling ratio for the model in use.
+        self.downsampling_ratio = 8
+
+        # Keypoint thresholds.
+        self.keypoint_threshold = 0.1
+        self.thresh_2 = 0.05
 
     def call(self, images):
         # t0 = time.time()
@@ -98,14 +108,7 @@ class OpenPose:
         if len(images.shape) == 3:
             images = np.expand_dims(images, 0)
 
-        # Optimal seems to be 386 actually, but twice as slow.
-        short_side = 184
-        downsampling_ratio = 8
-
-        keypoint_threshold = 0.1
-        thresh_2 = 0.05
-
-        resized, scale = resize_images(images, short_side=short_side)
+        resized, scale = resize_images(images, short_side=self.short_side)
         preprocessed = preprocess_images(resized)
 
         # torch.cuda.synchronize()
@@ -123,12 +126,12 @@ class OpenPose:
         # border of the image.
         pafs = torch.nn.functional.interpolate(
             pafs,
-            scale_factor=downsampling_ratio,
+            scale_factor=self.downsampling_ratio,
             mode='bicubic', align_corners=False,
         )
         heatmaps = torch.nn.functional.interpolate(
             heatmaps,
-            scale_factor=downsampling_ratio,
+            scale_factor=self.downsampling_ratio,
             mode='bicubic', align_corners=False,
         )
 
@@ -157,7 +160,7 @@ class OpenPose:
                 & (heatmap[1:-1, 1:-1] >= heatmap[1:-1, :-2])
                 & (heatmap[1:-1, 1:-1] >= heatmap[2:, 1:-1])
                 & (heatmap[1:-1, 1:-1] >= heatmap[1:-1, 2:])
-                & (heatmap[1:-1, 1:-1] >= keypoint_threshold)
+                & (heatmap[1:-1, 1:-1] >= self.keypoint_threshold)
             )
 
             # Add one to the coordinates to account for the 1px padding.
@@ -243,7 +246,9 @@ class OpenPose:
             )
 
             criterion_1 = (
-                (midpoint_scores > thresh_2).sum(dim=0) > 0.8 * num_midpoints
+                (
+                    midpoint_scores > self.thresh_2
+                ).sum(dim=0) > 0.8 * num_midpoints
             )
             criterion_2 = (reg_scores > 0)
 
