@@ -20,7 +20,7 @@ POSE_ESTIMATION_MODELS = {
 class Estimation:
 
     def __init__(
-        self, checkpoint='gpu-realtime', short_side=416,
+        self, checkpoint='gpu-realtime', short_side=184,
         merge_method='padding', device=default_device, lazy=False
     ):
         """Initializes and loads the model for `checkpoint`.
@@ -28,10 +28,11 @@ class Estimation:
         Parameters
         ----------
         checkpoint : str
-            Checkpoint (and model) to use in order to perform face detection.
+            Checkpoint (and model) to use in order to perform pose estimation.
         short_side : int
             Resize images' short side to `short_side` before sending over to
-            detection model.
+            the pose estimation model. Default is `184` to keep the model fast
+            enough, though for better results `386` is an appropriate value.
         merge_method : 'padding', 'crop'
             How to merge images together into a batch when receiving a
             list. Merge is done after resizing. Options are:
@@ -59,9 +60,13 @@ class Estimation:
         self.checkpoint = checkpoint
         self.estimation_cls = POSE_ESTIMATION_MODELS[self.checkpoint]
 
+        self.short_side = short_side
+
         # Load the model into memory unless we have the lazy loading set.
         self.model = (
-            self.estimation_cls(device=self.device) if not lazy else None
+            self.estimation_cls(
+                device=self.device, short_side=self.short_side
+            ) if not lazy else None
         )
 
     def __call__(self, images):
@@ -90,7 +95,9 @@ class Estimation:
         # Call the actual model on the images. If we haven't loaded the model
         # yet due to lazy loading, load it.
         if self.model is None:
-            self.model = self.estimation_cls(device=self.device)
+            self.model = self.estimation_cls(
+                device=self.device, short_side=self.short_side
+            )
         out = self.model.call(images)
 
         # return out[0] if expanded else out
