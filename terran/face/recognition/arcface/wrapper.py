@@ -149,12 +149,9 @@ class ArcFace:
         # No faces received, return early.
         if not preprocessed:
             # TODO: Embedding output depends on the model.
-            if faces_per_image is not None:
-                return np.empty((0, 512))
-            else:
-                return [
-                    np.empty((0, 512)) for _ in images
-                ]
+            return [
+                np.empty((0, 512)) for _ in images
+            ]
 
         preprocessed = np.stack(preprocessed, axis=0)
 
