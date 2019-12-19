@@ -21,13 +21,22 @@ MARKER_SCALES = [
 
 
 def display_image(image):
-    """Displays an image using `feh`.
+    """Displays an image using an external viewer.
 
-    Arguments:
-        image (np.array or PIL.Image): Image to be displayed.
+    Will first try using `feh`, if it's installed locally, and `matplotlib` as
+    fallback, if an error occurs.
+
+    Parameters
+    ----------
+    image : np.array or PIL.Image
+        Image to be displayed.
+
+    Raises
+    ------
+    Exception
+        If no suitable backend is found.
+
     """
-    # TODO: Can I pass several images to `feh` (e.g. the whole batch at once)?
-
     # If a numpy array, turn into a Pillow image first.
     if isinstance(image, np.ndarray):
         image = Image.fromarray(image)
@@ -38,11 +47,20 @@ def display_image(image):
     buf.seek(0)
 
     # Run the `feh` command, passing the buffer as input. If any error occurs,
-    # just ignore it, as it may simply not be supported in platform.
+    # fallback to using `imshow` from `matplotlib`.
     try:
         run(['feh', '-'], input=buf.read())
-    except SubprocessError as e:
-        print('Error displaying image:', e)
+    except SubprocessError:
+        try:
+            import matplotlib.pyplot as plt
+            plt.imshow(image)
+            plt.show()
+        except ImportError:
+            raise Exception(
+                'Unable to find a suitable backend to display an image. '
+                'Tried `feh` and `matplotlib`. Install either in order to use '
+                'this function.'
+            )
 
 
 def hex_to_rgb(x):
@@ -293,7 +311,6 @@ POSE_KEYPOINT_COLORS = {
 
 
 def draw_keypoints(ctx, keypoints, scale=1.0):
-
     for keypoint in keypoints:
         for idx, (x, y, is_present) in enumerate(keypoint['keypoints']):
             if not is_present:
