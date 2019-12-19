@@ -1,6 +1,8 @@
 import math
 import numpy as np
 
+from enum import Enum
+
 from terran import default_device
 from terran.pose.openpose import OpenPose
 
@@ -16,6 +18,32 @@ POSE_ESTIMATION_MODELS = {
     # Models.
     'openpose': OpenPose,
 }
+
+
+class Keypoint(Enum):
+    NOSE = 0
+    NECK = 1
+
+    R_SHOULDER = 2
+    R_ELBOW = 3
+    R_HAND = 4
+
+    L_SHOULDER = 5
+    L_ELBOW = 6
+    L_HAND = 7
+
+    R_HIP = 8
+    R_KNEE = 9
+    R_FOOT = 10
+
+    L_HIP = 11
+    L_KNEE = 12
+    L_FOOT = 13
+
+    R_EYE = 14
+    L_EYE = 15
+    R_EAR = 16
+    L_EAR = 17
 
 
 # TODO: This is *almost* like `terran.face.detection.merge_factory`. Unify them
