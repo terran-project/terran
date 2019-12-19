@@ -12,6 +12,14 @@ from functools import wraps
 from terran.pose import Keypoint
 
 
+MARKER_SCALES = [
+    (1920 * 1080, 1.8),
+    (1280 * 720, 1.5),
+    (480 * 360, 1.3),
+    (0, 1),
+]
+
+
 def display_image(image):
     """Displays an image using `feh`.
 
@@ -86,6 +94,12 @@ def with_cairo(vis_func):
         if not (isinstance(objects, list) or isinstance(objects, tuple)):
             objects = [objects]
 
+        # Calculate the appropriate scaling for the markers.
+        area = image.shape[1] * image.shape[0]
+        for ref_area, scale in MARKER_SCALES:
+            if area >= ref_area:
+                break
+
         # TODO: Ideally, we would like to avoid having to create a copy of the
         # array just to add paddings to support the cairo format, but there's
         # no way to use a cairo surface with 24bpp.
@@ -122,9 +136,9 @@ def with_cairo(vis_func):
             cairo.FONT_SLANT_NORMAL,
             cairo.FONT_WEIGHT_NORMAL
         )
-        ctx.set_font_size(16)
+        ctx.set_font_size(int(16 * scale))
 
-        vis_func(ctx, objects, *args, **kwargs)
+        vis_func(ctx, objects, scale=scale, *args, **kwargs)
 
         # Return the newly-drawn image, excluding the extra alpha channel
         # added.
@@ -135,7 +149,7 @@ def with_cairo(vis_func):
     return func
 
 
-def draw_marker(ctx, coords, color=(255, 0, 0), radius=10.0):
+def draw_marker(ctx, coords, color=(255, 0, 0), scale=1):
     """Draw a marker on `ctx` at `coords`.
 
     The marker itself is a rectangle with rounded corners.
@@ -146,8 +160,9 @@ def draw_marker(ctx, coords, color=(255, 0, 0), radius=10.0):
 
     degrees = math.pi / 180.0
 
+    radius = 10.0 * scale
     ctx.set_source_rgba(*color, 1.0)
-    ctx.set_line_width(3.)
+    ctx.set_line_width(3. * scale)
     ctx.set_dash([])
 
     ctx.new_sub_path()
@@ -171,8 +186,8 @@ def draw_marker(ctx, coords, color=(255, 0, 0), radius=10.0):
 
     ctx.stroke()
 
-    ctx.set_dash([10.])
-    ctx.set_line_width(1.)
+    ctx.set_dash([10. * scale])
+    ctx.set_line_width(1. * scale)
 
     ctx.move_to((x_min + x_max) / 2, y_min)
     ctx.line_to((x_min + x_max) / 2, y_max)
@@ -184,7 +199,7 @@ def draw_marker(ctx, coords, color=(255, 0, 0), radius=10.0):
 
 
 @with_cairo
-def vis_faces(ctx, faces):
+def vis_faces(ctx, faces, scale=1.0):
     """Draw boxes over the detected faces for the given image.
 
     Paramters
@@ -206,10 +221,13 @@ def vis_faces(ctx, faces):
     """
     for face in faces:
         color = map(lambda x: x / 255, FACE_COLORMAP(face.get('name')))
-        draw_marker(ctx, face['bbox'], color=color)
+        draw_marker(ctx, face['bbox'], color=color, scale=scale)
 
         if face.get('text'):
-            ctx.move_to(face['bbox'][0] + 3, face['bbox'][1] + 20)
+            ctx.move_to(
+                face['bbox'][0] + 3 * scale,
+                face['bbox'][1] + 15 * scale
+            )
             ctx.show_text(face['text'])
 
 
@@ -274,7 +292,7 @@ POSE_KEYPOINT_COLORS = {
 }
 
 
-def draw_keypoints(ctx, keypoints):
+def draw_keypoints(ctx, keypoints, scale=1.0):
 
     for keypoint in keypoints:
         for idx, (x, y, is_present) in enumerate(keypoint['keypoints']):
@@ -287,12 +305,12 @@ def draw_keypoints(ctx, keypoints):
             )
             ctx.set_source_rgba(*color, 0.9)
 
-            ctx.arc(x, y, 5, 0, 2 * math.pi)
+            ctx.arc(x, y, 3 * scale, 0, 2 * math.pi)
             ctx.fill()
             ctx.stroke()
 
 
-def draw_limbs(ctx, keypoints):
+def draw_limbs(ctx, keypoints, scale=1.0):
     for keypoint in keypoints:
         kps = keypoint['keypoints']
         for idx, (conn_src, conn_dst) in enumerate(POSE_CONNECTIONS):
@@ -305,13 +323,13 @@ def draw_limbs(ctx, keypoints):
 
             color = map(lambda x: x / 255, POSE_CONNECTION_COLORS[idx])
             ctx.set_source_rgba(*color, 0.7)
-            ctx.set_line_width(4.)
+            ctx.set_line_width(1.)
 
             # We'll use a Bezier curve using a rectangle around the line as
             # control points, so we first calculate the normal and the
             # direction we need to move the points on in order to have a
             # constant-height box around the lines.
-            width = 7
+            width = 4 * scale
 
             if abs(y_dst - y_src) > 0:
                 normal = - (x_dst - x_src) / (y_dst - y_src)
@@ -339,7 +357,7 @@ def draw_limbs(ctx, keypoints):
 
 
 @with_cairo
-def vis_poses(ctx, poses):
+def vis_poses(ctx, poses, scale=1.0):
     """Draw boxes over the detected poses for the given image.
 
     Paramters
@@ -356,5 +374,5 @@ def vis_poses(ctx, poses):
         Copy of `image` with the poses drawn over.
 
     """
-    draw_limbs(ctx, poses)
-    draw_keypoints(ctx, poses)
+    draw_limbs(ctx, poses, scale=scale)
+    draw_keypoints(ctx, poses, scale=scale)
