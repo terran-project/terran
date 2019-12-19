@@ -1,6 +1,7 @@
 import cairo
 import math
 import numpy as np
+import random
 
 from cairo import Context, ImageSurface
 from PIL import Image
@@ -58,7 +59,12 @@ def build_colormap():
 
     seen_labels = {}
 
-    def colormap(label):
+    def colormap(label=None):
+        # If `label` is `None` return a random color, so we can have both fix
+        # the colors and have them dynamic.
+        if label is None:
+            return random.choice(colors)
+
         # If label not yet seen, get the next value in the palette sequence.
         if label not in seen_labels:
             seen_labels[label] = colors[len(seen_labels) % len(colors)]
@@ -68,7 +74,7 @@ def build_colormap():
     return colormap
 
 
-colormap = build_colormap()
+FACE_COLORMAP = build_colormap()
 
 
 def with_cairo(vis_func):
@@ -109,8 +115,8 @@ def with_cairo(vis_func):
 
         ctx = Context(surface)
 
-        # Set up the font.
-        # TODO: What if it doesn't exist? Can I have fallbacks?
+        # Set up the font. If not available, will default to a Sans Serif
+        # font available in the system, so no need to have fallbacks.
         ctx.select_font_face(
             "DejaVuSans-Bold",
             cairo.FONT_SLANT_NORMAL,
@@ -187,9 +193,10 @@ def vis_faces(ctx, faces):
         Image to draw faces over.
     faces : dict or list of dicts, as returned by `face_detection`
         Faces to draw on `image`. The expected format is the one returned from
-        `face_detection`, with an optional extra field `text`, which will be
-        written next to the box, and `name`, to identify the face and make the
-        color used fixed.
+        `face_detection`, with two optional extra fields:
+        * `text` (str): Text to be written next to the box
+        * `name` (str): Name associated to the face, in order to make the color
+          used for the box fixed.
 
     Returns
     -------
@@ -197,10 +204,8 @@ def vis_faces(ctx, faces):
         Copy of `image` with the faces drawn over.
 
     """
-    # Draw the markers around the faces found.
     for face in faces:
-        # Draw a circle within the bounding box.
-        color = map(lambda x: x / 255, colormap(face.get('name', '')))
+        color = map(lambda x: x / 255, FACE_COLORMAP(face.get('name')))
         draw_marker(ctx, face['bbox'], color=color)
 
         if face.get('text'):
