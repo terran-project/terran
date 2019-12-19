@@ -8,63 +8,7 @@ from io import BytesIO
 from subprocess import run, SubprocessError
 from functools import wraps
 
-
-def with_cairo(vis_func):
-    """Wrapper function to prepare the cairo context for the vis function."""
-
-    @wraps(vis_func)
-    def func(image, objects, *args, **kwargs):
-        # Allow sending in a single object in every function.
-        if not (isinstance(objects, list) or isinstance(objects, tuple)):
-            objects = [objects]
-
-        # TODO: Ideally, we would like to avoid having to create a copy of the
-        # array just to add paddings to support the cairo format, but there's
-        # no way to use a cairo surface with 24bpp.
-
-        # TODO: Take into account endianness of the machine, as it's possible
-        # it has to be concatenated in the other order in some machines.
-
-        # We need to add an extra `alpha` layer, as cairo only supports 32 bits
-        # per pixel formats, and our numpy array uses 24. This means creating
-        # one copy before modifying and a second copy afterwards.
-        with_alpha = np.concatenate(
-            [
-                image[..., ::-1],
-                255 * np.ones(
-                    (image.shape[0], image.shape[1], 1),
-                    dtype=np.uint8
-                )
-            ], axis=2
-        )
-
-        surface = ImageSurface.create_for_data(
-            with_alpha,
-            cairo.Format.RGB24,
-            image.shape[1],
-            image.shape[0]
-        )
-
-        ctx = Context(surface)
-
-        # Set up the font.
-        # TODO: What if it doesn't exist? Can I have fallbacks?
-        ctx.select_font_face(
-            "DejaVuSans-Bold",
-            cairo.FONT_SLANT_NORMAL,
-            cairo.FONT_WEIGHT_NORMAL
-        )
-        ctx.set_font_size(16)
-
-        vis_func(ctx, objects, *args, **kwargs)
-
-        # Return the newly-drawn image, excluding the extra alpha channel
-        # added.
-        image = with_alpha[..., :-1][..., ::-1]
-
-        return image
-
-    return func
+from terran.pose import Keypoint
 
 
 def display_image(image):
@@ -124,8 +68,65 @@ def build_colormap():
     return colormap
 
 
-# TODO: Remove from here.
 colormap = build_colormap()
+
+
+def with_cairo(vis_func):
+    """Wrapper function to prepare the cairo context for the vis function."""
+
+    @wraps(vis_func)
+    def func(image, objects, *args, **kwargs):
+        # Allow sending in a single object in every function.
+        if not (isinstance(objects, list) or isinstance(objects, tuple)):
+            objects = [objects]
+
+        # TODO: Ideally, we would like to avoid having to create a copy of the
+        # array just to add paddings to support the cairo format, but there's
+        # no way to use a cairo surface with 24bpp.
+
+        # TODO: Take into account endianness of the machine, as it's possible
+        # it has to be concatenated in the other order in some machines.
+
+        # We need to add an extra `alpha` layer, as cairo only supports 32 bits
+        # per pixel formats, and our numpy array uses 24. This means creating
+        # one copy before modifying and a second copy afterwards.
+        with_alpha = np.concatenate(
+            [
+                image[..., ::-1],
+                255 * np.ones(
+                    (image.shape[0], image.shape[1], 1),
+                    dtype=np.uint8
+                )
+            ], axis=2
+        )
+
+        surface = ImageSurface.create_for_data(
+            with_alpha,
+            cairo.Format.RGB24,
+            image.shape[1],
+            image.shape[0]
+        )
+
+        ctx = Context(surface)
+
+        # Set up the font.
+        # TODO: What if it doesn't exist? Can I have fallbacks?
+        ctx.select_font_face(
+            "DejaVuSans-Bold",
+            cairo.FONT_SLANT_NORMAL,
+            cairo.FONT_WEIGHT_NORMAL
+        )
+        ctx.set_font_size(16)
+
+        vis_func(ctx, objects, *args, **kwargs)
+
+        # Return the newly-drawn image, excluding the extra alpha channel
+        # added.
+        image = with_alpha[..., :-1][..., ::-1]
+
+        return image
+
+    return func
 
 
 def draw_marker(ctx, coords, color=(255, 0, 0), radius=10.0):
@@ -207,27 +208,78 @@ def vis_faces(ctx, faces):
             ctx.show_text(face['text'])
 
 
-def draw_keypoints(ctx, keypoints):
+POSE_CONNECTIONS = [
+    (Keypoint.NOSE, Keypoint.NECK),
+    (Keypoint.NOSE, Keypoint.R_EYE), (Keypoint.R_EYE, Keypoint.R_EAR),
+    (Keypoint.NOSE, Keypoint.L_EYE), (Keypoint.L_EYE, Keypoint.L_EAR),
 
-    # TODO: Don't do like this.
-    colormap = list(map(
-        hex_to_rgb,
-        [
-            'e6550d', 'fd8d3c',
-            '637939', '8ca252', 'b5cf6b',
-            '3182bd', '6baed6', '9ecae1',
-            '843c39', 'ad494a', 'd6616b',
-            '8c6d31', 'bd9e39', 'e7ba52',
-            'fdae6b', '843c39', 'ad494a', 'd6616b',
-        ]
-    ))
+    (Keypoint.NECK, Keypoint.R_SHOULDER),
+    (Keypoint.R_SHOULDER, Keypoint.R_ELBOW),
+    (Keypoint.R_ELBOW, Keypoint.R_HAND),
+
+    (Keypoint.NECK, Keypoint.R_HIP),
+    (Keypoint.R_HIP, Keypoint.R_KNEE),
+    (Keypoint.R_KNEE, Keypoint.R_FOOT),
+
+    (Keypoint.NECK, Keypoint.L_SHOULDER),
+    (Keypoint.L_SHOULDER, Keypoint.L_ELBOW),
+    (Keypoint.L_ELBOW, Keypoint.L_HAND),
+
+    (Keypoint.NECK, Keypoint.L_HIP),
+    (Keypoint.L_HIP, Keypoint.L_KNEE),
+    (Keypoint.L_KNEE, Keypoint.L_FOOT),
+]
+
+
+POSE_CONNECTION_COLORS = list(map(hex_to_rgb, [
+    # Head.
+    'e6550d', 'fd8d3c', 'fdae6b', '843c39', 'ad494a',
+
+    # Right side.
+    '637939', '8ca252', 'b5cf6b',
+    '843c39', 'ad494a', 'd6616b',
+
+    # Left side.
+    '3182bd', '6baed6', '9ecae1',
+    '8c6d31', 'bd9e39', 'e7ba52',
+]))
+
+
+POSE_KEYPOINT_COLORS = {
+    Keypoint.NOSE: hex_to_rgb('e6550d'),
+    Keypoint.NECK: hex_to_rgb('fd8d3c'),
+    Keypoint.R_EYE: hex_to_rgb('fdae6b'),
+    Keypoint.L_EYE: hex_to_rgb('843c39'),
+    Keypoint.R_EAR: hex_to_rgb('ad494a'),
+    Keypoint.L_EAR: hex_to_rgb('d6616b'),
+
+    Keypoint.R_SHOULDER: hex_to_rgb('637939'),
+    Keypoint.R_ELBOW: hex_to_rgb('8ca252'),
+    Keypoint.R_HAND: hex_to_rgb('b5cf6b'),
+    Keypoint.R_HIP: hex_to_rgb('843c39'),
+    Keypoint.R_KNEE: hex_to_rgb('ad494a'),
+    Keypoint.R_FOOT: hex_to_rgb('d6616b'),
+
+    Keypoint.L_SHOULDER: hex_to_rgb('3182bd'),
+    Keypoint.L_ELBOW: hex_to_rgb('6baed6'),
+    Keypoint.L_HAND: hex_to_rgb('9ecae1'),
+    Keypoint.L_HIP: hex_to_rgb('8c6d31'),
+    Keypoint.L_KNEE: hex_to_rgb('bd9e39'),
+    Keypoint.L_FOOT: hex_to_rgb('e7ba52'),
+}
+
+
+def draw_keypoints(ctx, keypoints):
 
     for keypoint in keypoints:
         for idx, (x, y, is_present) in enumerate(keypoint['keypoints']):
             if not is_present:
                 continue
 
-            color = map(lambda x: x / 255, colormap[idx])
+            color = map(
+                lambda x: x / 255,
+                POSE_KEYPOINT_COLORS[Keypoint(idx)]
+            )
             ctx.set_source_rgba(*color, 0.9)
 
             ctx.arc(x, y, 5, 0, 2 * math.pi)
@@ -236,60 +288,17 @@ def draw_keypoints(ctx, keypoints):
 
 
 def draw_limbs(ctx, keypoints):
-    # TODO: Don't do like this.
-    colormap = list(map(
-        hex_to_rgb,
-        # Oranges.
-        # 'e6550d', 'fd8d3c', 'fdae6b',
-        # Blues.
-        # '3182bd', '6baed6', '9ecae1',
-        # Reds.
-        # '843c39', 'ad494a', 'd6616b',
-        # Greens.
-        # '637939', '8ca252', 'b5cf6b',
-        # Yellows.
-        # '8c6d31', 'bd9e39', 'e7ba52',
-        # Purples.
-        # '7b4173', 'a55194', 'ce6dbd',
-        # Violets.
-        # '393b79', '5253a3', '6b6ecf', '9c9ede',
-        [
-            'e6550d', 'fd8d3c', 'fdae6b', '843c39', 'ad494a',
-
-            '637939', '8ca252', 'b5cf6b',
-            '843c39', 'ad494a', 'd6616b',
-
-            '3182bd', '6baed6', '9ecae1',
-            '8c6d31', 'bd9e39', 'e7ba52',
-        ]
-    ))
-
-    connections = [
-        # Head connections.
-        (0, 1), (0, 14), (14, 16), (0, 15), (15, 17),
-
-        # Right arm.
-        (1, 2), (2, 3), (3, 4),
-        # Right foot.
-        (1, 8), (8, 9), (9, 10),
-
-        # Left arm.
-        (1, 5), (5, 6), (6, 7),
-        # Left foot.
-        (1, 11), (11, 12), (12, 13),
-    ]
-
     for keypoint in keypoints:
         kps = keypoint['keypoints']
-        for idx, (conn_src, conn_dst) in enumerate(connections):
-            x_src, y_src, src_present = kps[conn_src]
-            x_dst, y_dst, dst_present = kps[conn_dst]
+        for idx, (conn_src, conn_dst) in enumerate(POSE_CONNECTIONS):
+            x_src, y_src, src_present = kps[conn_src.value]
+            x_dst, y_dst, dst_present = kps[conn_dst.value]
 
             # Ignore limbs for which one of the keypoints is missing.
             if not (src_present and dst_present):
                 continue
 
-            color = map(lambda x: x / 255, colormap[idx])
+            color = map(lambda x: x / 255, POSE_CONNECTION_COLORS[idx])
             ctx.set_source_rgba(*color, 0.7)
             ctx.set_line_width(4.)
 
