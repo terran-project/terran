@@ -178,6 +178,24 @@ def draw_marker(ctx, coords, color=(255, 0, 0), radius=10.0):
 
 @with_cairo
 def vis_faces(ctx, faces):
+    """Draw boxes over the detected faces for the given image.
+
+    Paramters
+    ---------
+    image : np.ndarray representing an image.
+        Image to draw faces over.
+    faces : dict or list of dicts, as returned by `face_detection`
+        Faces to draw on `image`. The expected format is the one returned from
+        `face_detection`, with an optional extra field `text`, which will be
+        written next to the box, and `name`, to identify the face and make the
+        color used fixed.
+
+    Returns
+    -------
+    np.ndarray
+        Copy of `image` with the faces drawn over.
+
+    """
     # Draw the markers around the faces found.
     for face in faces:
         # Draw a circle within the bounding box.
@@ -308,5 +326,21 @@ def draw_limbs(ctx, keypoints):
 
 @with_cairo
 def vis_poses(ctx, poses):
+    """Draw boxes over the detected poses for the given image.
+
+    Paramters
+    ---------
+    image : np.ndarray representing an image.
+        Image to draw faces over.
+    poses : dict or list of dicts, as returned by `pose_estimation`
+        Poses to draw on `image`. The expected format is the one returned from
+        `pose_estimation`.
+
+    Returns
+    -------
+    np.ndarray
+        Copy of `image` with the poses drawn over.
+
+    """
     draw_limbs(ctx, poses)
     draw_keypoints(ctx, poses)
