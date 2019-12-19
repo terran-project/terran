@@ -6,6 +6,65 @@ from cairo import Context, ImageSurface
 from PIL import Image
 from io import BytesIO
 from subprocess import run, SubprocessError
+from functools import wraps
+
+
+def with_cairo(vis_func):
+    """Wrapper function to prepare the cairo context for the vis function."""
+
+    @wraps(vis_func)
+    def func(image, objects, *args, **kwargs):
+        # Allow sending in a single object in every function.
+        if not (isinstance(objects, list) or isinstance(objects, tuple)):
+            objects = [objects]
+
+        # TODO: Ideally, we would like to avoid having to create a copy of the
+        # array just to add paddings to support the cairo format, but there's
+        # no way to use a cairo surface with 24bpp.
+
+        # TODO: Take into account endianness of the machine, as it's possible
+        # it has to be concatenated in the other order in some machines.
+
+        # We need to add an extra `alpha` layer, as cairo only supports 32 bits
+        # per pixel formats, and our numpy array uses 24. This means creating
+        # one copy before modifying and a second copy afterwards.
+        with_alpha = np.concatenate(
+            [
+                image[..., ::-1],
+                255 * np.ones(
+                    (image.shape[0], image.shape[1], 1),
+                    dtype=np.uint8
+                )
+            ], axis=2
+        )
+
+        surface = ImageSurface.create_for_data(
+            with_alpha,
+            cairo.Format.RGB24,
+            image.shape[1],
+            image.shape[0]
+        )
+
+        ctx = Context(surface)
+
+        # Set up the font.
+        # TODO: What if it doesn't exist? Can I have fallbacks?
+        ctx.select_font_face(
+            "DejaVuSans-Bold",
+            cairo.FONT_SLANT_NORMAL,
+            cairo.FONT_WEIGHT_NORMAL
+        )
+        ctx.set_font_size(16)
+
+        vis_func(ctx, objects, *args, **kwargs)
+
+        # Return the newly-drawn image, excluding the extra alpha channel
+        # added.
+        image = with_alpha[..., :-1][..., ::-1]
+
+        return image
+
+    return func
 
 
 def display_image(image):
@@ -117,47 +176,8 @@ def draw_marker(ctx, coords, color=(255, 0, 0), radius=10.0):
     ctx.stroke()
 
 
-def vis_faces(image, faces):
-    if not (isinstance(faces, list) or isinstance(faces, tuple)):
-        faces = [faces]
-
-    # TODO: Ideally, we would like to avoid having to create a copy of the
-    # array just to add paddings to support the cairo format, but there's no
-    # way to use a cairo surface with 24bpp.
-    # TODO: Take into account endianness of the machine, as it's possible it
-    # has to be concatenated in the other order in some machines.
-
-    # We need to add an extra `alpha` layer, as cairo only supports 32 bits per
-    # pixel formats, and our numpy array uses 24. This means creating one copy
-    # before modifying and a second copy afterwards.
-    with_alpha = np.concatenate(
-        [
-            image[..., ::-1],
-            255 * np.ones(
-                (image.shape[0], image.shape[1], 1),
-                dtype=np.uint8
-            )
-        ], axis=2
-    )
-
-    surface = ImageSurface.create_for_data(
-        with_alpha,
-        cairo.Format.RGB24,
-        image.shape[1],
-        image.shape[0]
-    )
-
-    ctx = Context(surface)
-
-    # Set up the font.
-    # TODO: What if it doesn't exist? Can I have fallbacks?
-    ctx.select_font_face(
-        "DejaVuSans-Bold",
-        cairo.FONT_SLANT_NORMAL,
-        cairo.FONT_WEIGHT_NORMAL
-    )
-    ctx.set_font_size(16)
-
+@with_cairo
+def vis_faces(ctx, faces):
     # Draw the markers around the faces found.
     for face in faces:
         # Draw a circle within the bounding box.
@@ -168,7 +188,125 @@ def vis_faces(image, faces):
             ctx.move_to(face['bbox'][0] + 3, face['bbox'][1] + 20)
             ctx.show_text(face['text'])
 
-    # Return the newly-drawn image, excluding the extra alpha channel added.
-    image = with_alpha[..., :-1][..., ::-1]
 
-    return image
+def draw_keypoints(ctx, keypoints):
+
+    # TODO: Don't do like this.
+    colormap = list(map(
+        hex_to_rgb,
+        [
+            'e6550d', 'fd8d3c',
+            '637939', '8ca252', 'b5cf6b',
+            '3182bd', '6baed6', '9ecae1',
+            '843c39', 'ad494a', 'd6616b',
+            '8c6d31', 'bd9e39', 'e7ba52',
+            'fdae6b', '843c39', 'ad494a', 'd6616b',
+        ]
+    ))
+
+    for keypoint in keypoints:
+        for idx, (x, y, is_present) in enumerate(keypoint['keypoints']):
+            if not is_present:
+                continue
+
+            color = map(lambda x: x / 255, colormap[idx])
+            ctx.set_source_rgba(*color, 0.9)
+
+            ctx.arc(x, y, 5, 0, 2 * math.pi)
+            ctx.fill()
+            ctx.stroke()
+
+
+def draw_limbs(ctx, keypoints):
+    # TODO: Don't do like this.
+    colormap = list(map(
+        hex_to_rgb,
+        # Oranges.
+        # 'e6550d', 'fd8d3c', 'fdae6b',
+        # Blues.
+        # '3182bd', '6baed6', '9ecae1',
+        # Reds.
+        # '843c39', 'ad494a', 'd6616b',
+        # Greens.
+        # '637939', '8ca252', 'b5cf6b',
+        # Yellows.
+        # '8c6d31', 'bd9e39', 'e7ba52',
+        # Purples.
+        # '7b4173', 'a55194', 'ce6dbd',
+        # Violets.
+        # '393b79', '5253a3', '6b6ecf', '9c9ede',
+        [
+            'e6550d', 'fd8d3c', 'fdae6b', '843c39', 'ad494a',
+
+            '637939', '8ca252', 'b5cf6b',
+            '843c39', 'ad494a', 'd6616b',
+
+            '3182bd', '6baed6', '9ecae1',
+            '8c6d31', 'bd9e39', 'e7ba52',
+        ]
+    ))
+
+    connections = [
+        # Head connections.
+        (0, 1), (0, 14), (14, 16), (0, 15), (15, 17),
+
+        # Right arm.
+        (1, 2), (2, 3), (3, 4),
+        # Right foot.
+        (1, 8), (8, 9), (9, 10),
+
+        # Left arm.
+        (1, 5), (5, 6), (6, 7),
+        # Left foot.
+        (1, 11), (11, 12), (12, 13),
+    ]
+
+    for keypoint in keypoints:
+        kps = keypoint['keypoints']
+        for idx, (conn_src, conn_dst) in enumerate(connections):
+            x_src, y_src, src_present = kps[conn_src]
+            x_dst, y_dst, dst_present = kps[conn_dst]
+
+            # Ignore limbs for which one of the keypoints is missing.
+            if not (src_present and dst_present):
+                continue
+
+            color = map(lambda x: x / 255, colormap[idx])
+            ctx.set_source_rgba(*color, 0.7)
+            ctx.set_line_width(4.)
+
+            # We'll use a Bezier curve using a rectangle around the line as
+            # control points, so we first calculate the normal and the
+            # direction we need to move the points on in order to have a
+            # constant-height box around the lines.
+            width = 7
+
+            if abs(y_dst - y_src) > 0:
+                normal = - (x_dst - x_src) / (y_dst - y_src)
+                x_base = width / math.sqrt(normal ** 2 + 1)
+                y_base = x_base * normal
+            else:
+                # Careful calculating normal if limb is horizontal.
+                x_base = 0
+                y_base = width
+
+            ctx.move_to(x_src, y_src)
+            ctx.curve_to(
+                int(x_src + x_base), int(y_src + y_base),
+                int(x_dst + x_base), int(y_dst + y_base),
+                x_dst, y_dst,
+            )
+            ctx.curve_to(
+                int(x_dst - x_base), int(y_dst - y_base),
+                int(x_src - x_base), int(y_src - y_base),
+                x_src, y_src,
+            )
+            ctx.fill()
+
+            ctx.stroke()
+
+
+@with_cairo
+def vis_poses(ctx, poses):
+    draw_limbs(ctx, poses)
+    draw_keypoints(ctx, poses)
