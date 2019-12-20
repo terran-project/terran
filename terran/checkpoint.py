@@ -2,7 +2,6 @@ import click
 import os
 import shutil
 import requests
-import tarfile
 import tempfile
 
 from itertools import groupby
@@ -11,8 +10,6 @@ from pathlib import Path
 
 DEFAULT_TERRAN_HOME = Path('~/.terran')
 CHECKPOINT_PATH = 'checkpoints'
-
-BASE_URL = 'https://github.com/nagitsu/terran/releases/download/v0.0.1-alpha'
 
 LABELS_BY_TASK = {
     'face-detection': 'Face detection (`terran.face.Detection`)',
@@ -38,45 +35,10 @@ CHECKPOINTS = [
             'is_reported': False,
         },
 
-        'url': f'{BASE_URL}/retinaface-mnet.pth'
-    },
-    {
-        'id': 'b5d77fff',
-        'name': 'RetinaFace2',
-        'description': (
-            'RetinaFace with mnet backbone.'
-        ),
-
-        'task': 'face-detection',
-        'alias': 'gpu-accurate',
-
-        'performance': 1.0,
-        'evaluation': {
-            'value': 0.76,
-            'metric': 'mAP',
-            'is_reported': False,
-        },
-
-        'url': f'{BASE_URL}/retinaface-mnet.pth'
-    },
-    {
-        'id': 'b5d77fff',
-        'name': 'RetinaFace3',
-        'description': (
-            'RetinaFace with mnet backbone.'
-        ),
-
-        'task': 'face-detection',
-        'alias': 'edge',
-
-        'performance': 1.0,
-        'evaluation': {
-            'value': 0.76,
-            'metric': 'mAP',
-            'is_reported': False,
-        },
-
-        'url': f'{BASE_URL}/retinaface-mnet.pth'
+        'url': (
+            'https://github.com/nagitsu/terran/releases/download/v0.0.1-alpha/'
+            'retinaface-mnet.pth'
+        )
     },
     {
         'id': 'd206e4b0',
@@ -95,26 +57,10 @@ CHECKPOINTS = [
             'is_reported': False,
         },
 
-        'url': f'{BASE_URL}/arcface-resnet100.pth'
-    },
-    {
-        'id': 'd206e4b0',
-        'name': 'AdaCos',
-        'description': (
-            'ArcFace with Resnet 100 backbone.'
-        ),
-
-        'task': 'face-recognition',
-        'alias': 'gpu-accurate',
-
-        'performance': 0.9,
-        'evaluation': {
-            'value': 0.80,
-            'metric': 'accuracy',
-            'is_reported': False,
-        },
-
-        'url': f'{BASE_URL}/arcface-resnet100.pth'
+        'url': (
+            'https://github.com/nagitsu/terran/releases/download/v0.0.1-alpha/'
+            'arcface-resnet100.pth'
+        )
     },
     {
         'id': '11a769ad',
@@ -134,47 +80,10 @@ CHECKPOINTS = [
             'is_reported': True,
         },
 
-        'url': f'{BASE_URL}/openpose-body.pth'
-    },
-    {
-        'id': '11a769ad',
-        'name': 'AlphaPose',
-        'description': (
-            'OpenPose with VGG backend, 2017 version. Has some modifications, '
-            'improving computational efficiency by giving up mAP.'
-        ),
-
-        'task': 'pose-estimation',
-        'alias': 'gpu-accurate',
-
-        'performance': 1.8,
-        'evaluation': {
-            'value': 0.65,
-            'metric': 'mAP',
-            'is_reported': True,
-        },
-
-        'url': f'{BASE_URL}/openpose-body.pth'
-    },
-    {
-        'id': '11a769ad',
-        'name': 'PersonLab',
-        'description': (
-            'OpenPose with VGG backend, 2017 version. Has some modifications, '
-            'improving computational efficiency by giving up mAP.'
-        ),
-
-        'task': 'pose-estimation',
-        'alias': 'edge',
-
-        'performance': 1.8,
-        'evaluation': {
-            'value': 0.65,
-            'metric': 'mAP',
-            'is_reported': True,
-        },
-
-        'url': f'{BASE_URL}/openpose-body.pth'
+        'url': (
+            'https://github.com/nagitsu/terran/releases/download/v0.0.1-alpha/'
+            'openpose-body.pth'
+        )
     },
 ]
 
@@ -218,22 +127,28 @@ def get_checkpoints_directory():
     return path
 
 
-def get_checkpoint_path(checkpoint_id):
-    """Returns checkpoint's directory given its ID."""
-    return get_checkpoints_directory() / checkpoint_id
-
-
-# Index-related functions: access and mutation.
-
 def read_checkpoint_db():
     """Reads the checkpoints database file from disk."""
+    # Get the downloaded checkpoints by searching through the filesystem.
+    local_checkpoints = set(
+        path.stem for path in get_checkpoints_directory().glob('*.pth')
+    )
+
     checkpoints = [
         {
-            'status': 'DOWNLOADED',
+            'status': (
+                'DOWNLOADED' if checkpoint['id'] in local_checkpoints
+                else 'NOT_DOWNLOADED'
+            ),
+            'local_path': (
+                get_checkpoints_directory() / f"{checkpoint['id']}.pth"
+                if checkpoint['id'] in local_checkpoints else None
+            ),
             **checkpoint
         }
         for checkpoint in CHECKPOINTS
     ]
+
     return {
         'checkpoints': checkpoints
     }
@@ -254,21 +169,136 @@ def read_checkpoint_db():
 #         json.dump(checkpoints, f)
 
 
-def get_checkpoint(db, checkpoint_id):
-    """Returns checkpoint entry in `db` indicated by `checkpoint_id`."""
-    selected = [c for c in db['checkpoints'] if c['id'] == checkpoint_id]
+def get_checkpoint(db, id_or_alias):
+    """Returns checkpoint entry in `db` indicated by `id_or_alias`.
+
+    Parameters
+    ----------
+    id_or_alias : str or tuple of str
+        Either the ID of the checkpoint, or a tuple of the form (task_name,
+        alias) that uniquely points to a checkpoint.
+
+    Returns
+    -------
+    Dict
+        Checkpoint data contained in the database.
+
+    """
+    if isinstance(id_or_alias, tuple):
+        task_name, alias = id_or_alias
+        selected = [
+            c for c in db['checkpoints']
+            if c['task'] == task_name and c['alias'] == alias
+        ]
+    else:
+        selected = [c for c in db['checkpoints'] if c['id'] == id_or_alias]
 
     if len(selected) < 1:
         return None
 
     if len(selected) > 1:
         click.echo(
-            f"Multiple checkpoints found for '{checkpoint_id}' "
+            f"Multiple checkpoints found for '{id_or_alias}' "
             f"({len(selected)}). Returning first."
         )
 
     return selected[0]
 
+
+def get_checkpoint_path(id_or_alias, prompt=True):
+    """Returns the local path to the checkpoint's weights.
+
+    This is be the main entry point to interact with the checkpoints from the
+    outside: by using this function, one can get the path to the weights that
+    can then be directly loaded with `torch.load`.
+
+    Parameters
+    ----------
+    id_or_alias : str or tuple of str
+        Either the ID of the checkpoint, or a tuple of the form (task_name,
+        alias) that uniquely points to a checkpoint.
+    prompt : boolean
+        If `True` and the checkpoint is not yet downloaded, prompt to download.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to the `.pth` file containing the weights for the model.
+
+    Raises
+    ------
+    ValueError
+        If checkpoint is not found or is found but not downloaded, either due
+        to aborting the prompt or disabling it in the first place.
+
+    """
+    db = read_checkpoint_db()
+    checkpoint = get_checkpoint(db, id_or_alias)
+
+    if not checkpoint:
+        # No checkpoint found.
+        raise ValueError('Checkpoint not found.')
+
+    if prompt and checkpoint['status'] == 'NOT_DOWNLOADED':
+        # Checkpoint hasn't been downloaded yet. Prompt for downloading it
+        # before continuing.
+        click.confirm(
+            'Checkpoint not present locally. Want to download it?', abort=True
+        )
+        download_remote_checkpoint(db, checkpoint)
+    elif checkpoint['status'] == 'NOT_DOWNLOADED':
+        # Not downloaded but didn't prompt.
+        raise ValueError('Checkpoint not downloaded.')
+
+    # `local_path` is now present in the checkpoint, as
+    # `download_remote_checkpoint` will have modified it if it was just
+    # downloaded.
+    return checkpoint['local_path']
+
+
+def download_remote_checkpoint(db, checkpoint):
+    # Check if the checkpoint is already downloaded. If it is, this function
+    # shouldn't have been called, so something is inconsistent.
+    if checkpoint['local_path'] and checkpoint['local_path'].exists():
+        click.echo(
+            f"Checkpoint file already present at {checkpoint['local_path']}. '"
+            f"If you're running into any issues, try issuing a `terran "
+            f"checkpoint delete {checkpoint['id']}` trying attempting again."
+        )
+        return
+
+    file_name = f"{checkpoint['id']}.pth"
+
+    # Create a temporary directory to download the files into.
+    tempdir = tempfile.mkdtemp()
+    path = Path(tempdir) / file_name
+
+    # Start the actual file download.
+    response = requests.get(checkpoint['url'], stream=True)
+    length = int(response.headers.get('Content-Length'))
+    chunk_size = 16 * 1024
+    progressbar = click.progressbar(
+        response.iter_content(chunk_size=chunk_size),
+        length=length / chunk_size, label='Downloading checkpoint...',
+    )
+
+    with open(path, 'wb') as f:
+        with progressbar as content:
+            for chunk in content:
+                f.write(chunk)
+
+    # Move the file to the checkpoints directory.
+    new_path = get_checkpoints_directory() / file_name
+    shutil.move(path, new_path)
+
+    # Update the checkpoint dict information.
+    checkpoint['status'] = 'DOWNLOADED'
+    checkpoint['local_path'] = new_path
+
+    # And finally make sure to delete the temp dir.
+    shutil.rmtree(tempdir)
+
+    click.echo("Checkpoint downloaded successfully.")
 
 
 @click.command(help='List available checkpoints.')
@@ -352,10 +382,29 @@ def info(checkpoint_id):
 
 
 
+
+@click.command(help='Download a remote checkpoint.')
+@click.argument('checkpoint_id')
+def download(checkpoint_id):
+    db = read_checkpoint_db()
+    checkpoint = get_checkpoint(db, checkpoint_id)
+    if not checkpoint:
+        click.echo(
+            "Checkpoint '{}' not found in index.".format(checkpoint_id)
+        )
+        return
+
+    if checkpoint['status'] != 'NOT_DOWNLOADED':
+        click.echo("Checkpoint is already downloaded.")
+        return
+
+    download_remote_checkpoint(db, checkpoint)
+
 @click.group(name='checkpoint', help='Checkpoint management commands.')
 def checkpoint_cmd():
     pass
 
 
+checkpoint_cmd.add_command(download)
 checkpoint_cmd.add_command(info)
 checkpoint_cmd.add_command(list)
