@@ -431,6 +431,7 @@ def info_cmd(checkpoint_id):
     click.echo()
 
     click.echo(f"Task: {LABELS_BY_TASK.get(checkpoint['task'], '')}")
+    click.echo(f"Class: `{checkpoint['class']}`")
     click.echo('Evaluation information: {:.3f} {}{}'.format(
         checkpoint['evaluation']['value'],
         checkpoint['evaluation']['metric'],
