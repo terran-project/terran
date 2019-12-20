@@ -14,6 +14,12 @@ CHECKPOINT_PATH = 'checkpoints'
 
 BASE_URL = 'https://github.com/nagitsu/terran/releases/download/v0.0.1-alpha'
 
+LABELS_BY_TASK = {
+    'face-detection': 'Face detection (`terran.face.Detection`)',
+    'face-recognition': 'Face recognition (`terran.face.Recognition`)',
+    'pose-estimation': 'Pose estimation (`terran.pose.Estimation`)',
+}
+
 CHECKPOINTS = [
     {
         'id': 'b5d77fff',
@@ -248,6 +254,22 @@ def read_checkpoint_db():
 #         json.dump(checkpoints, f)
 
 
+def get_checkpoint(db, checkpoint_id):
+    """Returns checkpoint entry in `db` indicated by `checkpoint_id`."""
+    selected = [c for c in db['checkpoints'] if c['id'] == checkpoint_id]
+
+    if len(selected) < 1:
+        return None
+
+    if len(selected) > 1:
+        click.echo(
+            f"Multiple checkpoints found for '{checkpoint_id}' "
+            f"({len(selected)}). Returning first."
+        )
+
+    return selected[0]
+
+
 
 @click.command(help='List available checkpoints.')
 def list():
@@ -265,15 +287,9 @@ def list():
     click.echo('=' * len(header))
     click.echo(header)
 
-    labels_by_task = {
-        'face-detection': 'Face detection (`terran.face.Detection`)',
-        'face-recognition': 'Face recognition (`terran.face.Recognition`)',
-        'pose-estimation': 'Pose estimation (`terran.pose.Estimation`)',
-    }
-
     is_first = True
     for key, group in groupby(db['checkpoints'], key=lambda x: x['task']):
-        label = labels_by_task.get(key, '')
+        label = LABELS_BY_TASK.get(key, '')
         click.echo(('=' if is_first else '-') * len(header))
         click.echo(f'| {label:<{len(header) - 4}} |')
         click.echo('-' * len(header))
@@ -295,10 +311,51 @@ def list():
     click.echo('=' * len(header))
 
 
+@click.command(help='Display detailed information on checkpoint.')
+@click.argument('checkpoint_id')
+def info(checkpoint_id):
+    db = read_checkpoint_db()
+
+    checkpoint = get_checkpoint(db, checkpoint_id)
+    if not checkpoint:
+        click.echo(
+            "Checkpoint '{}' not found in index.".format(checkpoint_id)
+        )
+        return
+
+    click.echo(
+        f"{checkpoint['name']} ({checkpoint['id']}, {checkpoint['alias']})"
+    )
+
+    if checkpoint['description']:
+        click.echo(f" > {checkpoint['description']}")
+
+    click.echo()
+
+    click.echo(f"Task: {LABELS_BY_TASK.get(checkpoint['task'], '')}")
+    click.echo('Evaluation information: {:.3f} {}{}'.format(
+        checkpoint['evaluation']['value'],
+        checkpoint['evaluation']['metric'],
+        ' (self-reported)' if checkpoint['evaluation']['is_reported'] else ''
+    ))
+    click.echo(
+        f"Computational performance: {checkpoint['performance']:.2f} units"
+    )
+
+    click.echo()
+
+    click.echo(f"Upstream URL: {checkpoint['url']}")
+    if checkpoint['local_path']:
+        click.echo(f"Status: DOWNLOADED (at `{checkpoint['local_path']}`)")
+    else:
+        click.echo('Status: NOT_DOWNLOADED')
+
+
 
 @click.group(name='checkpoint', help='Checkpoint management commands.')
 def checkpoint_cmd():
     pass
 
 
+checkpoint_cmd.add_command(info)
 checkpoint_cmd.add_command(list)
