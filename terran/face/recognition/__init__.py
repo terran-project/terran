@@ -1,31 +1,19 @@
 from terran import default_device
-from terran.face.recognition.arcface import ArcFace
+from terran.checkpoint import get_class_for_checkpoint
 
-
-FACE_RECOGNITION_MODELS = {
-    # Aliases.
-    # TODO: Tentative names.
-    'gpu-accurate': None,
-    'gpu-realtime': ArcFace,
-    'cpu-realtime': None,
-    'edge-realtime': None,
-
-    # Models.
-    'arcface-resnet100': ArcFace,
-}
+TASK_NAME = 'face-recognition'
 
 
 class Recognition:
 
-    def __init__(
-        self, checkpoint='gpu-realtime', device=default_device, lazy=False,
-    ):
+    def __init__(self, checkpoint=None, device=default_device, lazy=False):
         """Initializes and loads the model for `checkpoint`.
 
         Parameters
         ----------
         checkpoint : str
             Checkpoint (and model) to use in order to perform face recognition.
+            If `None`, will use the default one for the task.
         device : torch.Device
             Device to load the model on.
         lazy : bool
@@ -33,14 +21,7 @@ class Recognition:
 
         """
         self.device = device
-
-        if checkpoint not in FACE_RECOGNITION_MODELS:
-            raise ValueError(
-                'Checkpoint not found, is it one of '
-                '`terran.face.recognition.FACE_RECOGNITION_MODELS`?'
-            )
-        self.checkpoint = checkpoint
-        self.recognition_cls = FACE_RECOGNITION_MODELS[self.checkpoint]
+        self.recognition_cls = get_class_for_checkpoint(TASK_NAME, checkpoint)
 
         # Load the model into memory unless we have the lazy loading set.
         self.model = (

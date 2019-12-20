@@ -5,20 +5,10 @@ import numpy as np
 from lycon import resize
 
 from terran import default_device
-from terran.face.detection.retinaface import RetinaFace
+from terran.checkpoint import get_class_for_checkpoint
 
 
-FACE_DETECTION_MODELS = {
-    # Aliases.
-    # TODO: Tentative names.
-    'gpu-accurate': None,
-    'gpu-realtime': RetinaFace,
-    'cpu-realtime': None,
-    'edge-realtime': None,
-
-    # Models.
-    'retinaface-mnet': RetinaFace,
-}
+TASK_NAME = 'face-detection'
 
 
 def resize_factory(short_side=416):
@@ -194,8 +184,8 @@ def merge_factory(method='padding'):
 class Detection:
 
     def __init__(
-        self, checkpoint='gpu-realtime', short_side=416,
-        merge_method='padding', device=default_device, lazy=False
+        self, checkpoint=None, short_side=416, merge_method='padding',
+        device=default_device, lazy=False
     ):
         """Initializes and loads the model for `checkpoint`.
 
@@ -203,6 +193,7 @@ class Detection:
         ----------
         checkpoint : str
             Checkpoint (and model) to use in order to perform face detection.
+            If `None`, will use the default one for the task.
         short_side : int
             Resize images' short side to `short_side` before sending over to
             detection model.
@@ -225,14 +216,7 @@ class Detection:
 
         """
         self.device = device
-
-        if checkpoint not in FACE_DETECTION_MODELS:
-            raise ValueError(
-                'Checkpoint not found, is it one of '
-                '`terran.face.detection.FACE_DETECTION_MODELS`?'
-            )
-        self.checkpoint = checkpoint
-        self.detection_cls = FACE_DETECTION_MODELS[self.checkpoint]
+        self.detection_cls = get_class_for_checkpoint(TASK_NAME, checkpoint)
 
         # Load the model into memory unless we have the lazy loading set.
         self.model = (
@@ -287,5 +271,5 @@ class Detection:
         return out[0] if expanded else out
 
 
-# Instantiate default detector for cleaner API.
+# Instantiate default detector for a cleaner API.
 face_detection = Detection(lazy=True)

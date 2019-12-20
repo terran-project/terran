@@ -1,11 +1,19 @@
 import click
+import importlib
 import os
-import shutil
 import requests
+import shutil
 import tempfile
 
 from itertools import groupby
 from pathlib import Path
+
+
+__all__ = [
+    'get_terran_home',
+    'get_class_for_checkpoint',
+    'get_checkpoint_path',
+]
 
 
 DEFAULT_TERRAN_HOME = Path('~/.terran')
@@ -26,7 +34,9 @@ CHECKPOINTS = [
         ),
 
         'task': 'face-detection',
+        'class': 'terran.face.detection.retinaface.RetinaFace',
         'alias': 'gpu-realtime',
+        'default': True,
 
         'performance': 1.0,
         'evaluation': {
@@ -48,7 +58,9 @@ CHECKPOINTS = [
         ),
 
         'task': 'face-recognition',
+        'class': 'terran.face.recognition.arcface.ArcFace',
         'alias': 'gpu-realtime',
+        'default': True,
 
         'performance': 0.9,
         'evaluation': {
@@ -71,7 +83,9 @@ CHECKPOINTS = [
         ),
 
         'task': 'pose-estimation',
+        'class': 'terran.pose.openpose.OpenPose',
         'alias': 'gpu-realtime',
+        'default': True,
 
         'performance': 1.8,
         'evaluation': {
@@ -163,6 +177,9 @@ def get_checkpoint(db, id_or_alias):
         Either the ID of the checkpoint, or a tuple of the form (task_name,
         alias) that uniquely points to a checkpoint.
 
+        In the case of the latter, specifying `alias` as `None` will default to
+        the entry marked as `default = True` in the index.
+
     Returns
     -------
     Dict
@@ -173,7 +190,9 @@ def get_checkpoint(db, id_or_alias):
         task_name, alias = id_or_alias
         selected = [
             c for c in db['checkpoints']
-            if c['task'] == task_name and c['alias'] == alias
+            if c['task'] == task_name and (
+                c['alias'] == alias if alias is not None else c['default']
+            )
         ]
     else:
         selected = [c for c in db['checkpoints'] if c['id'] == id_or_alias]
@@ -190,18 +209,82 @@ def get_checkpoint(db, id_or_alias):
     return selected[0]
 
 
-def get_checkpoint_path(id_or_alias, prompt=True):
-    """Returns the local path to the checkpoint's weights.
-
-    This is be the main entry point to interact with the checkpoints from the
-    outside: by using this function, one can get the path to the weights that
-    can then be directly loaded with `torch.load`.
+def get_class_for_checkpoint(task_name, alias):
+    """Returns the model class for the given ID or alias.
 
     Parameters
     ----------
-    id_or_alias : str or tuple of str
-        Either the ID of the checkpoint, or a tuple of the form (task_name,
-        alias) that uniquely points to a checkpoint.
+    task_name : str
+        Name of the task to get the class for.
+    alias : str or `None`
+        Alias for the checkpoint, within `task_name`, to get the class for.
+        If `None`, will use the first entry that specifies `default = True`.
+
+    Returns
+    -------
+    class
+        The class of the model associated to the checkpoint.
+
+    Raises
+    ------
+    ValueError
+        If checkpoint is not found.
+    ImportError
+        If the class is somehow misspecified or not present.
+
+    """
+    db = read_checkpoint_db()
+    checkpoint = get_checkpoint(db, (task_name, alias))
+
+    if not checkpoint:
+        # No checkpoint found.
+        raise ValueError('Checkpoint not found.')
+
+    module_path, class_name = checkpoint['class'].rsplit('.', maxsplit=1)
+    return getattr(importlib.import_module(module_path), class_name)
+
+
+def get_checkpoint_by_class(db, class_path):
+    """Returns checkpoint entry in `db` indicated by `class_path`.
+
+    Parameters
+    ----------
+    class_path : str
+        Fully specified path to class (e.g. `terran.pose.openpose.OpenPose`)
+        of the model to get the checkpoint for.
+
+    Returns
+    -------
+    Dict
+        Checkpoint data contained in the database.
+
+    """
+    selected = [c for c in db['checkpoints'] if c['class'] == class_path]
+
+    if len(selected) < 1:
+        return None
+
+    if len(selected) > 1:
+        click.echo(
+            f"Multiple checkpoints found for '{class_path}' "
+            f"({len(selected)}). Returning first."
+        )
+
+    return selected[0]
+
+
+def get_checkpoint_path(model_class_path, prompt=True):
+    """Returns the local path to the model's weights.
+
+    Goes through the list of checkpoints and returns the local path to the
+    weights of the modell specified by `model_class`. If the weights are not
+    downloaded, downloads them first.
+
+    Parameters
+    ----------
+    model_class_path : str
+        Fully specified path to class (e.g. `terran.pose.openpose.OpenPose`)
+        of the model to get the checkpoint for.
     prompt : boolean
         If `True` and the checkpoint is not yet downloaded, prompt to download.
 
@@ -218,7 +301,7 @@ def get_checkpoint_path(id_or_alias, prompt=True):
 
     """
     db = read_checkpoint_db()
-    checkpoint = get_checkpoint(db, id_or_alias)
+    checkpoint = get_checkpoint_by_class(db, model_class_path)
 
     if not checkpoint:
         # No checkpoint found.

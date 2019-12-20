@@ -4,20 +4,10 @@ import numpy as np
 from enum import Enum
 
 from terran import default_device
-from terran.pose.openpose import OpenPose
+from terran.checkpoint import get_class_for_checkpoint
 
 
-POSE_ESTIMATION_MODELS = {
-    # Aliases.
-    # TODO: Tentative names.
-    'gpu-accurate': None,
-    'gpu-realtime': OpenPose,
-    'cpu-realtime': None,
-    'edge-realtime': None,
-
-    # Models.
-    'openpose': OpenPose,
-}
+TASK_NAME = 'pose-estimation'
 
 
 class Keypoint(Enum):
@@ -141,15 +131,16 @@ def merge_factory(method='padding'):
 class Estimation:
 
     def __init__(
-        self, checkpoint='gpu-realtime', short_side=184,
-        merge_method='padding', device=default_device, lazy=False
+        self, checkpoint=None, short_side=184, merge_method='padding',
+        device=default_device, lazy=False
     ):
         """Initializes and loads the model for `checkpoint`.
 
         Parameters
         ----------
-        checkpoint : str
+        checkpoint : str or None
             Checkpoint (and model) to use in order to perform pose estimation.
+            If `None`, will use the default one for the task.
         short_side : int
             Resize images' short side to `short_side` before sending over to
             the pose estimation model. Default is `184` to keep the model fast
@@ -172,14 +163,7 @@ class Estimation:
 
         """
         self.device = device
-
-        if checkpoint not in POSE_ESTIMATION_MODELS:
-            raise ValueError(
-                'Checkpoint not found, is it one of '
-                '`terran.pose.POSE_ESTIMATION_MODELS`?'
-            )
-        self.checkpoint = checkpoint
-        self.estimation_cls = POSE_ESTIMATION_MODELS[self.checkpoint]
+        self.estimation_cls = get_class_for_checkpoint(TASK_NAME, checkpoint)
 
         self.short_side = short_side
 
