@@ -1,11 +1,11 @@
 import numpy as np
 import lycon
-import os
 import torch
 
 from lycon import resize
 
 from terran import default_device
+from terran.checkpoint import get_checkpoint_path
 from terran.pose.openpose.model import BodyPoseModel
 
 
@@ -26,9 +26,11 @@ limbseq = [
 
 def load_model():
     model = BodyPoseModel()
-    model.load_state_dict(torch.load(
-        os.path.expanduser('~/.terran/checkpoints/openpose-body.pth')
-    ))
+    model.load_state_dict(
+        torch.load(
+            get_checkpoint_path('terran.pose.openpose.OpenPose')
+        )
+    )
     model.eval()
     return model
 

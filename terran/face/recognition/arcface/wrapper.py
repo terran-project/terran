@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import os
 import torch
 
 from PIL import Image
@@ -8,13 +7,14 @@ from sklearn.preprocessing import normalize
 from skimage.transform import SimilarityTransform
 
 from terran import default_device
+from terran.checkpoint import get_checkpoint_path
 from terran.face.recognition.arcface.model import FaceResNet100
 
 
 def load_model():
     model = FaceResNet100()
     model.load_state_dict(torch.load(
-        os.path.expanduser('~/.terran/checkpoints/arcface-resnet100.pth')
+        get_checkpoint_path('terran.face.recognition.arcface.ArcFace')
     ))
     model.eval()
     return model

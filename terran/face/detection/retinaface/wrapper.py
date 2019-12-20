@@ -1,10 +1,10 @@
 import math
-import os
 import torch
 
 from torchvision.ops import nms
 
 from terran import default_device
+from terran.checkpoint import get_checkpoint_path
 from terran.face.detection.retinaface.anchors import (
     anchors_plane, generate_anchor_reference,
 )
@@ -16,7 +16,7 @@ from terran.face.detection.retinaface.model import (
 def load_model():
     model = RetinaFaceModel()
     model.load_state_dict(torch.load(
-        os.path.expanduser('~/.terran/checkpoints/retinaface-mnet.pth')
+        get_checkpoint_path('terran.face.detection.retinaface.RetinaFace')
     ))
     model.eval()
     return model
