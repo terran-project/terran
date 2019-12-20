@@ -1,12 +1,17 @@
 import click
 import torch
 
+from terran.checkpoint import checkpoint_cmd
+
 
 default_device = (
     torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 )
 
 
-@click.command()
+@click.group()
 def cli():
-    click.echo('Why are you looking so far back?')
+    pass
+
+
+cli.add_command(checkpoint_cmd)
