@@ -14,6 +14,7 @@ setup(
         'ffmpeg-python',
         'lycon',
         'numpy',
+        'requests',
         'torch',
         'torchvision',
     ],

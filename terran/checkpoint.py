@@ -152,21 +152,6 @@ def read_checkpoint_db():
     return {
         'checkpoints': checkpoints
     }
-    # path = get_checkpoints_directory() / CHECKPOINT_INDEX
-    # if not path.exists():
-    #     return {'checkpoints': []}
-
-    # with open(path) as f:
-    #     index = json.load(f)
-
-    # return index
-
-
-# def save_checkpoint_db(checkpoints):
-#     """Overwrites the database file in disk with `checkpoints`."""
-#     path = get_checkpoints_directory() / CHECKPOINT_INDEX
-#     with open(path, 'w') as f:
-#         json.dump(checkpoints, f)
 
 
 def get_checkpoint(db, id_or_alias):
@@ -301,8 +286,8 @@ def download_remote_checkpoint(db, checkpoint):
     click.echo("Checkpoint downloaded successfully.")
 
 
-@click.command(help='List available checkpoints.')
-def list():
+@click.command(name='list', help='List available checkpoints.')
+def list_cmd():
     db = read_checkpoint_db()
 
     if not db['checkpoints']:
@@ -341,9 +326,9 @@ def list():
     click.echo('=' * len(header))
 
 
-@click.command(help='Display detailed information on checkpoint.')
+@click.command(name='info', help='Display detailed information on checkpoint.')
 @click.argument('checkpoint_id')
-def info(checkpoint_id):
+def info_cmd(checkpoint_id):
     db = read_checkpoint_db()
 
     checkpoint = get_checkpoint(db, checkpoint_id)
@@ -381,17 +366,34 @@ def info(checkpoint_id):
         click.echo('Status: NOT_DOWNLOADED')
 
 
-
-
-@click.command(help='Download a remote checkpoint.')
+@click.command(
+    name='delete', help='Delete local files associated to a checkpoint.'
+)
 @click.argument('checkpoint_id')
-def download(checkpoint_id):
+def delete_cmd(checkpoint_id):
     db = read_checkpoint_db()
     checkpoint = get_checkpoint(db, checkpoint_id)
     if not checkpoint:
-        click.echo(
-            "Checkpoint '{}' not found in index.".format(checkpoint_id)
-        )
+        click.echo(f"Checkpoint `{checkpoint_id}` not found in index.")
+        return
+
+    if checkpoint['status'] == 'NOT_DOWNLOADED':
+        click.echo("Checkpoint isn't downloaded. Nothing to delete.")
+        return
+
+    # Delete the files associated to checkpoint.
+    checkpoint['local_path'].unlink()
+
+    click.echo(f"Checkpoint `{checkpoint['id']}` deleted successfully.")
+
+
+@click.command(name='download', help='Download a remote checkpoint.')
+@click.argument('checkpoint_id')
+def download_cmd(checkpoint_id):
+    db = read_checkpoint_db()
+    checkpoint = get_checkpoint(db, checkpoint_id)
+    if not checkpoint:
+        click.echo(f"Checkpoint `{checkpoint_id}` not found in index.")
         return
 
     if checkpoint['status'] != 'NOT_DOWNLOADED':
@@ -400,11 +402,13 @@ def download(checkpoint_id):
 
     download_remote_checkpoint(db, checkpoint)
 
+
 @click.group(name='checkpoint', help='Checkpoint management commands.')
 def checkpoint_cmd():
     pass
 
 
-checkpoint_cmd.add_command(download)
-checkpoint_cmd.add_command(info)
-checkpoint_cmd.add_command(list)
+checkpoint_cmd.add_command(delete_cmd)
+checkpoint_cmd.add_command(download_cmd)
+checkpoint_cmd.add_command(info_cmd)
+checkpoint_cmd.add_command(list_cmd)
