@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 import torch
 
@@ -50,15 +49,26 @@ def preprocess_face(image, landmark, image_size=(112, 112)):
 
     dst = landmark.astype(np.float32)
 
-    tform = SimilarityTransform()
-    tform.estimate(dst, src)
-    M = tform.params[0:2, :]
+    t_form = SimilarityTransform()
+    t_form.estimate(dst, src)
 
+    #
     # Do align using landmark.
-    warped = cv2.warpAffine(
-        image, M, (image_size[1], image_size[0]), borderValue=0.0
+    #
+    # The Image.transform method requires the inverted transformation matrix,
+    # without the last row, and flattened
+    #
+    t_matrix = np.linalg.inv(t_form.params)[0: -1, :].flatten()
+
+    warped = Image.fromarray(image).transform(
+        size=(image_size[1], image_size[0]),
+        method=Image.AFFINE,
+        data=t_matrix,
+        resample=Image.BILINEAR,
+        fillcolor=0,
     )
 
+    warped = np.array(warped)
     return warped.transpose([2, 0, 1])[::-1, ...]
 
 
