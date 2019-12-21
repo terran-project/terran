@@ -50,7 +50,7 @@ def display_image(image):
     # fallback to using `imshow` from `matplotlib`.
     try:
         run(['feh', '-'], input=buf.read())
-    except SubprocessError:
+    except (FileNotFoundError, SubprocessError):
         try:
             import matplotlib.pyplot as plt
             plt.imshow(image)
