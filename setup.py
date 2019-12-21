@@ -15,6 +15,8 @@ setup(
         'lycon',
         'numpy',
         'requests',
+        'scikit-image',
+        'sklearn',
         'torch',
         'torchvision',
     ],
