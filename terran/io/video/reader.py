@@ -180,31 +180,36 @@ class Video:
         Note that if `duration` is `None` and `path` points to a stream,
         `Video` will return frames indefinitely.
 
-        Arguments:
-            path (str): Path to a video file, stream URL or capture device.
-            batch_size (int or None): Batch size for the returned frames. If
-                `None`, no batching will occur (thus, a rank 3 array will be
-                returned).
-            framerate (int, str or None): Framerate to output frames as. Will
-                pass along to `ffmpeg`, which will drop or add frames as
-                needed.  Can be an `int` with the frames per second, a `str`
-                with a fraction (e.g. `'5000/1001'`) or `None` to leave as-is.
-            is_stream (bool or None): Whether the video is a capture device, a
-                stream or somehow a never-ending video file. If `None`, will
-                try to guess.
-            read_for (int, float or None): Maximum number of seconds to read,
-                or `None` for reading until the end.
+        Parameters
+        ----------
+        path : str
+            Path to a video file, stream URL or capture device.
+        batch_size : int or None
+            Batch size for the returned frames. If `None`, no batching will
+            occur (thus, a rank 3 array will be returned).
+        framerate : int, str or None
+            Framerate to output frames as. Will pass along to `ffmpeg`, which
+            will drop or add frames as needed.  Can be an `int` with the frames
+            per second, a `str` with a fraction (e.g. `'5000/1001'`) or `None`
+            to leave as-is.
+        is_stream : bool or None
+            Whether the video is a capture device, a stream or somehow a
+            never-ending video file. If `None`, will try to guess.
+        read_for : int, float or None
+            Maximum number of seconds to read, or `None` for reading until the
+            end.
 
-                If `read_for` is bigger than the source duration (considering
-                the start time), the actual video duration might be less than
-                this value.
-            start_time (int, str or None): Time to start video from. If an
-                `int`, specified in seconds. If `str`, specified as a timestamp
-                with the format `HH:MM:SS.ms`.
-            ydl_format (str): The format filtering option for YouTube-DL. Check
-                out the YouTube-DL "Format Selection" documentation for more
-                information:
-                https://github.com/ytdl-org/youtube-dl#format-selection
+            If `read_for` is bigger than the source duration (considering
+            the start time), the actual video duration might be less than
+            this value.
+        start_time : int, str or None
+            Time to start video from. If an `int`, specified in seconds. If
+            `str`, specified as a timestamp with the format `HH:MM:SS.ms`.
+        ydl_format : str
+            The format filtering option for YouTube-DL. Check out the
+            YouTube-DL "Format Selection" documentation for more information:
+            https://github.com/ytdl-org/youtube-dl#format-selection
+
         """
         self.path = os.path.expanduser(path)
 
@@ -324,8 +329,11 @@ class Video:
         """Returns number of batches present in the video.
 
         Raises
-            AttributeError: If the video is a stream or we were otherwise
-                unable to infer the video length.
+        ------
+        AttributeError
+            If the video is a stream or we were otherwise unable to infer the
+            video length.
+
         """
         if not self.duration:
             raise AttributeError(
@@ -356,7 +364,10 @@ class Video:
         and the `start_time` set by the user.
 
         Returns
-            `float` or None: Time in seconds or `None` if it's a stream.
+        -------
+        float or None
+            Time in seconds or `None` if it's a stream.
+
         """
         if not self.source_duration:
             # If no duration, will read for `self.read_for` seconds, which may
@@ -508,7 +519,10 @@ def open_video(*args, **kwargs):
 
     Arguments are passed verbatim to `Video`.
 
-    Returns:
+    Returns
+    -------
+    Video
         `Video` instance representing the video at `path`.
+
     """
     return Video(*args, **kwargs)

@@ -11,10 +11,12 @@ class ConvSepBlock(nn.Module):
         Consists of common Conv, BN and ReLU sequence, followed by the same
         sequence but with a separable Conv.
 
-        Arguments:
-            return_both (bool): Return the outputs of both inner components,
-                the conv and the separable blocks. We do this because it's the
-                conv block the one that's used as feature pyramid.
+        Paramters
+        ---------
+        return_both : bool
+            Return the outputs of both inner components, the conv and the
+            separable blocks. We do this because it's the conv block the one
+            that's used as feature pyramid.
 
         """
         super().__init__()

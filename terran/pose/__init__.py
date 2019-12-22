@@ -182,10 +182,13 @@ class Estimation:
         Derives the actual prediction to the model the `Estimation` object was
         initialized with.
 
-        Arguments
-            images (list or tuple or np.ndarray).
+        Parameters
+        ----------
+        images : list or tuple or np.ndarray
 
         Returns
+        -------
+        list
             List of dictionaries containing pose data for a single image, or a
             list of these entries thereof.
 
