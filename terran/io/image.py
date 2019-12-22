@@ -41,3 +41,44 @@ def open_image(uri):
         image = np.stack([image] * 3, axis=-1)
 
     return image
+
+
+def resolve_images(path, batch_size=None):
+    """Collects the path for all images under `path`, returning them by batches.
+
+    Validates that the image is valid before returning it by attempting to open
+    it with PIL.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Path to recursively search for images in.
+
+    Yields
+    ------
+    pathlib.Path or [pathlib.Path]
+        Path to every valid image found under `path`.
+
+    """
+    if not isinstance(path, Path):
+        path = Path(path).expanduser()
+
+    batch = []
+    for f in path.glob('**/*'):
+        if not f.is_file():
+            continue
+
+        try:
+            Image.open(f).verify()
+        except OSError:
+            continue
+
+        # If no `batch_size` specified, just return the path.
+        if batch_size is None:
+            yield path.joinpath(f)
+            continue
+
+        batch.append(path.joinpath(f))
+        if len(batch) >= batch_size:
+            yield batch
+            batch = []
