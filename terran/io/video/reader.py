@@ -3,13 +3,21 @@ import json
 import math
 import numpy as np
 import os
-import re
 import subprocess
 
 from threading import Event, Thread
 from queue import Full as QueueFull, Queue
 
 from terran.io.video import DEFAULT_READER_BUFFER_SIZE, EndOfVideo, VideoClosed
+
+
+def youtube_dl_available():
+    """Check if `youtube-dl` is available in the installation."""
+    try:
+        import youtube_dl  # noqa
+        return True
+    except ImportError:
+        return False
 
 
 def ffmpeg_probe(path, **kwargs):
@@ -22,13 +30,15 @@ def ffmpeg_probe(path, **kwargs):
     Parameters
     ----------
     path : str
-        This parameter can be a path or URL pointing directly to a video file or stream.
+        This parameter can be a path or URL pointing directly to a video file
+        or stream.
 
     Raises
     ------
-    ffmpeg.Error: If `ffprobe` returns a non-zero exit code. The stderr
-        output can be retrieved by accessing the `stderr` property of the
-        exception.
+    ffmpeg.Error
+        If `ffprobe` returns a non-zero exit code. The stderr output can be
+        retrieved by accessing the `stderr` property of the exception.
+
     """
     if not is_path_stream(path):
         path = os.path.expanduser(path)
@@ -45,7 +55,9 @@ def ffmpeg_probe(path, **kwargs):
         'json', path
     ]
 
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
 
     out, err = proc.communicate()
     if proc.returncode != 0:
@@ -55,7 +67,7 @@ def ffmpeg_probe(path, **kwargs):
 
 
 def is_path_stream(path):
-    """Returns True if the path points to a video stream"""
+    """Returns True if the path points to a video stream."""
     return any([
         path.startswith(prefix)
         for prefix in ['/dev/', 'http://', 'https://']
@@ -189,8 +201,9 @@ class Video:
             start_time (int, str or None): Time to start video from. If an
                 `int`, specified in seconds. If `str`, specified as a timestamp
                 with the format `HH:MM:SS.ms`.
-            ydl_format (str): The format filtering option for YouTube-DL. Check out
-                the YouTube-DL "Format Selection" documentation for more information:
+            ydl_format (str): The format filtering option for YouTube-DL. Check
+                out the YouTube-DL "Format Selection" documentation for more
+                information:
                 https://github.com/ytdl-org/youtube-dl#format-selection
         """
         self.path = os.path.expanduser(path)
@@ -230,9 +243,17 @@ class Video:
             else:
                 probe = ffmpeg_probe(self.path)
         except ffmpeg.Error:
-            raise ValueError(
-                f'Video at `{path}` not found. Are you sure it exists?'
-            )
+            message = f'Video at `{path}` not found. Are you sure it exists?'
+            if not youtube_dl_available():
+                message += (
+                    "\n\n"
+                    "Unable to find suitable way to stream from online video "
+                    "platforms. If you're trying to stream from YouTube or "
+                    "other streaming platforms, make sure `youtube-dl` is "
+                    "installed first. If not, ignore this message."
+                )
+
+            raise ValueError(message)
 
         video_stream = next(
             (
@@ -355,31 +376,32 @@ class Video:
 
     def _get_stream_path(self):
         """Check if video stream comes from a video sharing platform"""
-        youtube_regex = re.compile(
-            r'^(http(s)?:\/\/)?((w){3}.)?youtu(be|.be)?(\.com)?\/.+'
-        )
-        is_stream_youtube = bool(youtube_regex.match(self.path))
+        if not youtube_dl_available():
+            return self.path
 
-        if is_stream_youtube:
-            try:
-                from youtube_dl import YoutubeDL
+        import youtube_dl
 
-                ydl_options = {'format': self.ydl_format, 'quiet': True}
-                with YoutubeDL(ydl_options) as ydl:
-                    info_dict = ydl.extract_info(self.path, download=False)
+        ydl_options = {
+            'format': self.ydl_format,
+            'quiet': True,
+            'no_warnings': True
+        }
 
-                    if info_dict['url'] is None:
-                        raise ValueError(
-                            f'Unable to find YouTube stream URL for video format {self.ydl_format}'
+        for extractor in youtube_dl.gen_extractors():
+            if extractor.suitable(self.path):
+                try:
+                    with youtube_dl.YoutubeDL(ydl_options) as ydl:
+                        stream_info = ydl.extract_info(
+                            self.path, download=False
                         )
-
-                    return info_dict["url"]
-            except ImportError:
-                raise Exception(
-                    'Unable to find library to stream from online video platforms. '
-                    'Please install `youtube-dl` to support streaming from YouTube and '
-                    'other streaming platforms.'
-                )
+                        if stream_info['url'] is None:
+                            raise ValueError(
+                                'Unable to find stream URL for video format '
+                                f'{self.ydl_format}'
+                            )
+                        return stream_info['url']
+                except youtube_dl.utils.YoutubeDLError:
+                    break
 
         return self.path
 
@@ -411,7 +433,7 @@ class Video:
             # from where valid?
             kwargs.update({'ss': self.start_time or '00:00:05'})
 
-        # If stream comes from YouTube, we want to send the video to ffmpeg through stdin
+        # Send the appropriate path to `ffmpeg`, either stream or normal.
         input_file = self.stream_path if self.is_stream else self.path
         spec = spec.input(input_file, **kwargs)
 
