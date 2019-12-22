@@ -6,6 +6,7 @@ from threading import Thread
 from queue import Queue
 
 from terran.io.video import DEFAULT_WRITER_BUFFER_SIZE, VideoClosed
+from terran.io.video.reader import Video, open_video
 
 
 def _frame_writer(queue, cmd):
@@ -42,7 +43,8 @@ def _frame_writer(queue, cmd):
 class VideoWriter:
 
     def __init__(
-        self, output_path, copy_format_from=None, size_hint=None, **kwargs
+        self, output_path, framerate=None, copy_format_from=None,
+        size_hint=None, **kwargs
     ):
         """Initialize the writing of a video.
 
@@ -50,18 +52,35 @@ class VideoWriter:
         keyword arguments, which will be fed to `ffmpeg` as-is, or by copying
         them from an existing `Video`.
 
-        TODO: Specify exactly which keyword arguments might be set. Whether to
-        put it as an input or output flag depends on the setting itself, so we
-        can't do it automatically.
+        Parameters
+        ----------
+        framerate (int, str or None): Framerate of the output video. Will pass
+            along to `ffmpeg`.  Can be an `int` with the frames per second, a
+            `str` with a fraction (e.g. `'5000/1001'`). Default is `30`, or the
+            framerate of `copy_format_from`, if specified.
+        copy_format_from : str, pathlib.Path or Video
+            Either `Video` instance or path to video to copy format from.
+        size_hint : tuple
+            (height, width) tuple indicating the frame size the video will
+            have. Defaults to `None`, meaning that it will be infered from the
+            first frame.
 
-        Arguments:
-            size_hint (tuple): (height, width) tuple indicating the frame size
-            the video will have. Defaults to `None`, meaning that it will be
-            infered from the first frame.
         """
         self.output_path = os.path.expanduser(output_path)
 
-        self.size_hint = None
+        # Calculate the framerate for the video. Priority is: value of
+        # `framerate`, value from `copy_format_from`, or default of `30`.
+        if framerate is None and copy_format_from is None:
+            self.framerate = 30
+        elif framerate is None and copy_format_from is not None:
+            if not isinstance(copy_format_from, Video):
+                # We got a path to a video, open it to check the framerate.
+                copy_format_from = open_video(copy_format_from)
+            self.framerate = copy_format_from.framerate
+        else:
+            self.framerate = framerate
+
+        self.size_hint = size_hint
 
         # Handler for video-writing thread and queue.
         self._thread = None
@@ -72,12 +91,17 @@ class VideoWriter:
         if not self._closed:
             self.close()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
     def _prepare_ffmpeg_cmd(self):
         spec = ffmpeg
 
-        # TODO: Framerate; `copy_from`.
         kwargs = {
-            'framerate': '30',
+            'framerate': str(self.framerate),
             'format': 'rawvideo',
             'pix_fmt': 'rgb24',
             's': '{}x{}'.format(self.width, self.height),  # Frame size.
@@ -101,8 +125,6 @@ class VideoWriter:
         Note that if no `size_hint` is provided when creating the writer, and a
         rendering function is passed as argument, the rendering function might
         be executed twice, in order to infer the size of the video to write.
-
-        Arguments:
 
         """
         if self._closed:
@@ -148,8 +170,11 @@ def write_video(*args, **kwargs):
 
     Arguments are passed verbatim to `VideoWriter`.
 
-    Returns:
+    Returns
+    -------
+    VideoWriter
         `VideoWriter` instance representing the writer object that can be fed
         frames.
+
     """
     return VideoWriter(*args, **kwargs)
