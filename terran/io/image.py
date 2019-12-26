@@ -1,9 +1,17 @@
 import numpy as np
+import requests
 
+from io import BytesIO
 from pathlib import Path
 from PIL import Image
 from urllib.parse import urlparse
-from urllib.request import urlopen
+
+
+# Use a Chrome-based user agent to avoid getting needlessly blocked.
+USER_AGENT = (
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/51.0.2704.103 Safari/537.36'
+)
 
 
 def open_image(uri):
@@ -30,7 +38,8 @@ def open_image(uri):
     if isinstance(uri, Path):
         image = Image.open(uri)
     elif urlparse(uri).scheme:
-        image = Image.open(urlopen(uri))
+        response = requests.get(uri, headers={'User-Agent': USER_AGENT})
+        image = Image.open(BytesIO(response.content))
     else:
         image = Image.open(Path(uri).expanduser())
 
