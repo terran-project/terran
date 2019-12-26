@@ -33,7 +33,9 @@ reading and visualizing results, which should simplify work a bit.
   when processing videos.
 
 * Utilities to **open remote images**, recursively find images, and (prettily)
-  **visualize results**.
+  **visualize results**. We also allow reading from **video streams** and even
+  videos from **video platforms** supported by
+  [Youtube-DL](https://github.com/ytdl-org/youtube-dl/).
 
 * **Checkpoint management tool**, so you don't have to manually download
   pre-trained model files.
@@ -108,70 +110,45 @@ Or maybe:
 
 ## Finding a person in a group of images
 
-`reference` the path to the reference person, which should contain only one
-person, `image-dir` the path to the directory containing the images to search
-in.
+You can use Terran's I/O utilities to quickly find a person within all the
+images present in a directory, in a *Google Photos*-like functionality. The
+code is present at [examples/match.py](examples/match.py).
 
-```python
-from scipy.spatial.distance import cosine
-
-from terran.face import face_detection, extract_features
-from terran.io import open_image, resolve_images
-
-reference = open_image(reference)
-faces_in_reference = face_detection(reference)
-if len(faces_in_reference) != 1:
-    click.echo('Reference image must have exactly one face.')
-    return
-ref_feature = extract_features(reference, faces_in_reference[0])
-
-paths = resolve_images(
-    Path(image_dir).expanduser(),
-    batch_size=batch_size
-)
-for batch_paths in paths:
-    batch_images = list(map(open_image, batch_paths))
-    faces_per_image = face_detection(batch_images)
-    features_per_image = extract_features(batch_images, faces_per_image)
-
-    for path, image, faces, features in zip(
-        batch_paths, batch_images, faces_per_image, features_per_image
-    ):
-        for face, feature in zip(faces, features):
-            if cosine(ref_feature, feature) < 0.5:
-                display_image(vis_faces(image, face))
+```bash
+python examples/match.py reference.png images/
 ```
+
+Here `reference.png` is the path to the reference person, which should contain
+only one person, while `images/` is the directory containing the images to
+search in.
+
+(TODO: Diagram showing process and matching of images to photos.)
 
 ## Face detection over a video
 
-```python
-from terran.face import face_detection
-from terran.io import open_video, write_video
-from terran.vis import vis_faces
+Terran also provides functions to perform I/O over videos, in order to read
+them efficiently and in a background thread, as well as to write them. See
+[examples/video.py](examples/video.py) to see a short example of running face
+detection over a video.
 
-video = open_video(
-    video_path,
-    batch_size=batch_size,
-    read_for=duration,
-    start_time=start_time,
-    framerate=framerate,
-)
-
-writer = write_video(output_path, copy_format_from=video)
-
-for frames in video:
-    faces_per_frame = face_detection(frames)
-    for frame, faces in zip(frames, faces_per_frame):
-        if not faces:
-            continue
-
-        # If you don't call `vis_faces` directly, the rendering will be done
-        # in the writing thread, thus not blocking the main program while
-        # # drawing.
-        writer.write_frame(vis_faces, frame, faces)
-
-writer.close()
+```bash
+python examples/video.py video.mp4 out.mp4
 ```
+
+Here `video.mp4` is the video to run the face detection over, and `out.mp4` the
+output location.
+
+(TODO: Example gif output.)
+
+Note that `video.mp4` could be a Youtube video or the path to your webcam. For
+instance:
+
+```bash
+python examples/video.py 'https://www.youtube.com/watch?v=oHg5SJYRHA0' out.mp4 --duration=30
+```
+
+You could also mix this example and the one above to search for a person within
+a video. We leave it as an exercise for the reader.
 
 ## Customizing model settings
 
