@@ -9,7 +9,7 @@ techniques and algorithms in order to facilitate building systems that interact
 with people.
 
 The philosophy behind the library is to focus on tasks and problems instead of
-models and algorithms. That is, we aim to always have the best possible
+models and algorithms. That is, it aims to always have the best possible
 algorithm for the job given its constraints, and to take the burden of finding
 which model performs best off you.
 
@@ -166,6 +166,17 @@ face_detection = Detection(short_side=208)
 image = open_image(...)
 detections = face_detection(image)
 ```
+
+# References
+
+Terran doesn't provide training code for the models. As such, pre-trained
+weights are taken, adapted and re-packaged from the official model repositories
+of the respective models.
+
+- For OpenPose, the [official Pytorch version](https://github.com/ZheC/Realtime_Multi-Person_Pose_Estimation)
+  weights are used.
+- For ArcFace and RetinaFace, [Insightface's](https://github.com/deepinsight/insightface)
+  weights are used (in mxnet, translated to Pytorch by us).
 
 # License
 
