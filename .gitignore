@@ -1,5 +1,7 @@
-/dist/
+.vscode/
 *.egg-info/
 *__pycache__*
+
 /checkpoints/
-.vscode/
+/dist/
+/docs/_build/
