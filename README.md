@@ -19,7 +19,12 @@ We (currently) provide models for: **face detection**, **face recognition** and
 **pose estimation**. We also offer several utility functions for efficiently
 reading and visualizing results, which should simplify work a bit.
 
-![photo]
+<p align="center">
+  <img src="examples/readme/main-image.jpg", width="720"><br>
+  <sup>
+    Example of Terran's face detection and pose estimation capabilities.
+  </sup>
+</p>
 
 # Features
 
@@ -29,6 +34,9 @@ reading and visualizing results, which should simplify work a bit.
 
 * Utilities to open remote images, recursively find images, and (prettily)
   visualize results.
+
+* Checkpoint management tool, so you don't have to manually download
+  pre-trained model files.
 
 * Face detection provided through the *RetinaFace* model.
 
@@ -69,12 +77,18 @@ in an interactive console:
 >>> from terran.vis import display_image, vis_faces
 >>> from terran.face import face_detection
 >>>
->>> image = open_image('<URL>')
+>>> image = open_image('examples/readme/many-faces-raw.jpg')
 >>> detections = face_detection(image)
 >>> display_image(vis_faces(image, detections))
 ```
 
-![photo]
+<p align="center">
+  <img src="examples/readme/many-faces.jpg", width="720">
+</p>
+
+If it's the first use, you should be prompted to download the model files. You
+can also do it manually, by running `terran checkpoint list` and then
+`terran checkpoint download <checkpoint-id>` in a terminal.
 
 Or maybe:
 
@@ -82,10 +96,13 @@ Or maybe:
 >>> from terran.vis import vis_poses
 >>> from terran.pose import pose_estimation
 >>>
+>>> image = open_image('examples/readme/many-poses-raw.jpg')
 >>> display_image(vis_poses(image, pose_estimation(image)))
 ```
 
-![photo]
+<p align="center">
+  <img src="examples/readme/many-poses.jpg", width="720">
+</p>
 
 # Examples
 
