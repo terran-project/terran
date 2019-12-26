@@ -28,25 +28,25 @@ reading and visualizing results, which should simplify work a bit.
 
 # Features
 
-* Efficient I/O utilities to read and write videos through `ffmpeg`. Frames are
-  pre-fetched in a background thread, allowing you to maximize GPU usage when
-  processing videos.
+* Efficient I/O **utilities to read and write videos** through `ffmpeg`. Frames
+  are pre-fetched in a background thread, allowing you to maximize GPU usage
+  when processing videos.
 
-* Utilities to open remote images, recursively find images, and (prettily)
-  visualize results.
+* Utilities to **open remote images**, recursively find images, and (prettily)
+  **visualize results**.
 
-* Checkpoint management tool, so you don't have to manually download
+* **Checkpoint management tool**, so you don't have to manually download
   pre-trained model files.
 
-* Face detection provided through the *RetinaFace* model.
+* **Face detection** provided through the *RetinaFace* model.
 
-* Face recognition provided through the *ArcFace* model.
+* **Face recognition** provided through the *ArcFace* model.
 
-* Pose estimation provided through the *OpenPose* model (2017 version).
+* **Pose estimation** provided through the *OpenPose* model (2017 version).
 
 # Getting started
 
-Be sure to read the full documentation [here]().
+Be sure to read the **full documentation** [here]().
 
 ## Installation
 
