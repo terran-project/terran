@@ -187,7 +187,9 @@ the same person, the cosine distance between their features should be very small
 
 This is better illustrated with an example. Let's take the following three images:
 
-(images stitched together)
+.. image:: /assets/quickstart-stitched.png
+  :width: 720
+  :alt: The three images to extract features from.
 
 We can obtain the representations of each as follows::
 
@@ -307,7 +309,6 @@ internal image resizing, batching, and such. The functions above are actually in
 these classes with default settings. We only touched upon the shortcut functions-based versions
 here, so be sure to check :ref:`usage/algorithms` for more information.
 
-
 Visualizing the results
 -----------------------
 
@@ -324,7 +325,9 @@ you'll get an image (as a ``numpy.ndarray``) with the markers. You can also use 
 
     display_image(vis_faces(image, faces))
 
-(image with results)
+.. image:: /assets/quickstart-vis.jpg
+  :width: 720
+  :alt: Image with markers over every face.
 
 The results of :func:`vis_faces <terran.vis.vis_faces>` and :func:`vis_poses
 <terran.vis.vis_poses>` can even be fed directly to :func:`VideoWriter.write_frame
