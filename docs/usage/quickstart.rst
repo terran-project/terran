@@ -268,7 +268,8 @@ poses::
     # >>        [678, 292,   1]], dtype=int32)
 
 The ``keypoints`` array has three columns: the first two are the :math:`(x, y)` coordinates, while
-the third is either 0 or 1, indicating whether the keypoint is visible or not.
+the third is either 0 or 1, indicating whether the keypoint is visible or not. You can see which of
+the 18 keypoints is which by taking a look at the :class:`Keypoint <terran.pose.Keypoint>` enum.
 
 Additional notes
 ^^^^^^^^^^^^^^^^
@@ -310,6 +311,27 @@ here, so be sure to check :ref:`usage/algorithms` for more information.
 Visualizing the results
 -----------------------
 
-``vis_poses``, ``vis_faces``
+It's difficult to make sense of the results just by looking at the coordinates, so Terran also
+offers some visualization utilities to draw markers over images for faces and poses, through
+:func:`vis_faces <terran.vis.vis_faces>` and :func:`vis_poses <terran.vis.vis_poses>`,
+respectively.
 
-``display_image``
+The usage is straightforward, just pass in the image and the detections straight out of Terran, and
+you'll get an image (as a ``numpy.ndarray``) with the markers. You can also use the provided
+:func:`display_image <terran.vis.display_image>` to quickly peek the image::
+
+    from terran.vis import display_image, vis_faces
+
+    display_image(vis_faces(image, faces))
+
+(image with results)
+
+The results of :func:`vis_faces <terran.vis.vis_faces>` and :func:`vis_poses
+<terran.vis.vis_poses>` can even be fed directly to :func:`VideoWriter.write_frame
+<terran.io.video.writer.VideoWriter.write_frame>` to visualize videos as well.
+
+Next steps
+----------
+
+That's all there is to start! The documentation is still pretty basic, so if you have any
+questions, feel free to open an issue on Github.

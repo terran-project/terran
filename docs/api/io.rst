@@ -27,4 +27,4 @@ Images
 ------
 
 .. automodule:: terran.io.image
-  :members: resolve_images, open_image
+  :members: open_image, resolve_images
