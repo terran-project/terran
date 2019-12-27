@@ -15,7 +15,7 @@ Documentation
 
 .. toctree::
    :maxdepth: 2
-   :caption: Usage:
+   :caption: Usage
 
    usage/installation
    Getting started <usage/quickstart>
@@ -29,7 +29,7 @@ Documentation
 
 .. toctree::
     :maxdepth: 2
-    :caption: API Reference:
+    :caption: API Reference
 
     api/io
     api/algorithms

@@ -3,10 +3,13 @@
 I/O functions
 =============
 
+Note that all functions within ``terran.io.video.*`` and ``terran.io.image.*`` are re-exported at
+the level of ``terran.io.*``, and that's the recommended place to import them from.
+
 .. _api-io-video:
 
-Video
------
+terran.io.video
+---------------
 
 There are two functions related to video I/O, and are the main entry points for this purpose.
 
@@ -23,8 +26,8 @@ the actual logic of reading and writing videos.
 
 .. _api-io-image:
 
-Images
-------
+terran.io.image
+---------------
 
 .. automodule:: terran.io.image
   :members: open_image, resolve_images

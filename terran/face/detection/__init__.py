@@ -236,12 +236,24 @@ class Detection:
         Derives the actual prediction to the model the `Detection` object was
         initialized with.
 
-        Arguments
-            images (list or tuple or np.ndarray).
+        Parameters
+        ----------
+        images : list of numpy.ndarray or numpy.ndarray
+            Images to perform face detection on.
 
         Returns
+        -------
+        list of list of dicts, or list dict
             List of dictionaries containing face data for a single image, or a
             list of these entries thereof.
+
+            Each entry is of the form::
+
+                {
+                    'bbox': [x_min, y_min, x_max, y_max],
+                    'landmarks': ...,  # Array of shape (5, 2).
+                    'score': ... # Confidence score.
+                }
 
         """
         # If `images` is a single `np.ndarray`, turn into a list.

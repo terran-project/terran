@@ -3,8 +3,8 @@
 Human perception algorithms
 ===========================
 
-Face detection
---------------
+terran.face.detection
+---------------------
 
 .. automodule:: terran.face.detection
   :members: face_detection
@@ -12,8 +12,8 @@ Face detection
 .. autoclass:: terran.face.detection.Detection
   :members: __call__
 
-Face recognition
-----------------
+terran.face.recognition
+-----------------------
 
 .. automodule:: terran.face.recognition
   :members: extract_features
@@ -21,8 +21,8 @@ Face recognition
 .. autoclass:: terran.face.recognition.Recognition
   :members: __call__
 
-Pose estimation
----------------
+terran.pose
+-----------
 
 .. automodule:: terran.pose
   :members: pose_estimation
