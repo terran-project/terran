@@ -124,7 +124,7 @@ Here `reference.png` is the path to the reference person, which should contain
 only one person, while `images/` is the directory containing the images to
 search in.
 
-(TODO: Diagram showing process and matching of images to photos.)
+<!-- TODO: Diagram showing process and matching of images to photos. -->
 
 ## Face detection over a video
 
@@ -140,7 +140,7 @@ python examples/video.py video.mp4 out.mp4
 Here `video.mp4` is the video to run the face detection over, and `out.mp4` the
 output location.
 
-(TODO: Example gif output.)
+<!-- TODO: Example gif output. -->
 
 Note that `video.mp4` could be a Youtube video or the path to your webcam. For
 instance:
