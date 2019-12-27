@@ -397,11 +397,13 @@ def list_cmd():
             line = template.format(
                 f"{checkpoint['name']} ({checkpoint['id']})",
                 checkpoint['alias'],
-                (
-                    ('* ' if checkpoint['evaluation']['is_reported'] else '')
-                    + f"{checkpoint['evaluation']['value']:.2f}"
-                ),
-                f"{checkpoint['performance']:.2f}",
+                '',
+                '',
+                # (
+                #     ('* ' if checkpoint['evaluation']['is_reported'] else '')
+                #     + f"{checkpoint['evaluation']['value']:.2f}"
+                # ),
+                # f"{checkpoint['performance']:.2f}",
                 checkpoint['status'],
             )
             click.echo(line)
