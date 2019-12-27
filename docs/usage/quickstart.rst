@@ -273,7 +273,31 @@ the third is either 0 or 1, indicating whether the keypoint is visible or not.
 Additional notes
 ^^^^^^^^^^^^^^^^
 
-checkpoints, prompted to that, maybe terran checkpoint utility.
+The first time you use any of the functions above, you will get prompted to download the
+appropriate checkpoint. Terran offers several pre-trained models, each for different scenarios that
+may have different resource constraints. You can list them all by using the CLI tool exposed by
+Terran upon install::
+
+    $ terran checkpoint list
+    ========================================================================================
+    |                           Name |        Alias |    Eval. |    Perf. |         Status |
+    ========================================================================================
+    | Face detection (`terran.face.Detection`)                                             |
+    ----------------------------------------------------------------------------------------
+    |          RetinaFace (b5d77fff) | gpu-realtime |          |          |     DOWNLOADED |
+    ----------------------------------------------------------------------------------------
+    | Face recognition (`terran.face.Recognition`)                                         |
+    ----------------------------------------------------------------------------------------
+    |             ArcFace (d206e4b0) | gpu-realtime |          |          |     DOWNLOADED |
+    ----------------------------------------------------------------------------------------
+    | Pose estimation (`terran.pose.Estimation`)                                           |
+    ----------------------------------------------------------------------------------------
+    |            OpenPose (11a769ad) | gpu-realtime |          |          | NOT_DOWNLOADED |
+    ========================================================================================
+
+If you don't want to be prompted during use, you can download them in advance by using the ``terran
+checkpoint download`` command. For instance, to download the pose estimation checkpoint, you would
+run ``terran checkpoint download 11a769ad``, where ``11a769ad`` is the ID shown in parentheses.
 
 Note that for every algorithm, Terran provides a function-based version that allows minimal
 customization (such as :func:`face_detection <terran.face.detection.face_detection>`) and a
