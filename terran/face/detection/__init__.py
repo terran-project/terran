@@ -227,6 +227,9 @@ class Detection:
         self.resize_in, self.resize_out = resize_factory(short_side=short_side)
         self.merge_in, self.merge_out = merge_factory(method=merge_method)
 
+    def __repr__(self):
+        return f'<Detection({self.detection_cls.__name__})>'
+
     def __call__(self, images):
         """Performs face detection on `images`.
 
@@ -271,5 +274,10 @@ class Detection:
         return out[0] if expanded else out
 
 
-# Instantiate default detector for a cleaner API.
 face_detection = Detection(lazy=True)
+"""Default entry point to face detection.
+
+This is an instantiation of the :class:`Detection` class, lazily-loaded in
+order to avoid reading the checkpoints on import. Refer to that class'
+:func:`__call__ <Detection.__call__>` method for more information.
+"""

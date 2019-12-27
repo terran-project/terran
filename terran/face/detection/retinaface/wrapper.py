@@ -231,7 +231,7 @@ class RetinaFace:
             landmarks = landmarks[keep].to('cpu').numpy()
 
             batch_objects.append([
-                {'bbox': b,  'landmarks': l, 'score': s}
+                {'bbox': b, 'landmarks': l, 'score': s}
                 for s, b, l in zip(scores, proposals, landmarks)
             ])
 

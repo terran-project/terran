@@ -176,6 +176,9 @@ class Estimation:
 
         self.merge_in, self.merge_out = merge_factory(method=merge_method)
 
+    def __repr__(self):
+        return f'<Estimation({self.estimation_cls.__name__})>'
+
     def __call__(self, images):
         """Performs pose estimation on `images`.
 
@@ -221,3 +224,9 @@ class Estimation:
 
 
 pose_estimation = Estimation(lazy=True)
+"""Default entry point to pose estimation.
+
+This is an instantiation of the :class:`Estimation` class, lazily-loaded in
+order to avoid reading the checkpoints on import. Refer to that class'
+:func:`__call__ <Estimation.__call__>` method for more information.
+"""

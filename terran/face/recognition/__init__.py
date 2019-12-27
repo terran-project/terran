@@ -28,6 +28,9 @@ class Recognition:
             self.recognition_cls(device=self.device) if not lazy else None
         )
 
+    def __repr__(self):
+        return f'<Recognition({self.recognition_cls.__name__})>'
+
     def __call__(self, images, faces_per_image=None):
         """Performs face recognition on `images`.
 
@@ -88,3 +91,9 @@ class Recognition:
 
 
 extract_features = Recognition(lazy=True)
+"""Default entry point to face recognition.
+
+This is an instantiation of the :class:`Recognition` class, lazily-loaded in
+order to avoid reading the checkpoints on import. Refer to that class'
+:func:`__call__ <Recognition.__call__>` method for more information.
+"""
