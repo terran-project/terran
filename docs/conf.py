@@ -38,6 +38,9 @@ extensions = [
 
 autoclass_content = 'both'
 
+# Mock dependencies that have C-extensions.
+autodoc_mock_imports = ['lycon']
+
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
