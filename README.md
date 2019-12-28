@@ -50,7 +50,7 @@ reading and visualizing results, which should simplify work a bit.
 
 # Getting started
 
-Be sure to read the **full documentation** [here]().
+Be sure to read the **full documentation** [here](https://terran-project.com).
 
 ## Installation
 
@@ -67,9 +67,14 @@ pip install terran
 If you require a particular Pytorch version (e.g. you're using a specific CUDA
 version), be sure to install it beforehand.
 
+For more information, see the
+[Installation](https://terran-project.com/en/latest/usage/installation.html) section in the
+documentation.
+
 ## Usage
 
-See the [Examples](#examples) section for more in-depth examples.
+See the [Getting started](https://terran-project.com/en/latest/usage/quickstart.html) section in
+the documentation, and the [Examples](#examples) section for more in-depth examples.
 
 You can use the functions under `terran.io.*` for easy reading of media files,
 and the appropriate algorithm function under the top-level module. If you don't
