@@ -3,6 +3,11 @@ import os
 from setuptools import setup, find_packages
 
 
+# Load the README file to use it as long description.
+with open('README.md', 'r') as f:
+    readme = f.read()
+
+
 INSTALL_REQUIRES = [
     'click',
     'ffmpeg-python',
@@ -36,7 +41,10 @@ setup(
 
     author='Agustín Azzinnari',
     author_email='me@nagitsu.com',
-    url='https://github.com/nagitsu/terran',
+    description='A human perception library',
+    long_description=readme,
+    long_description_content_type='text/markdown',
+    url='https://terran-project.com',
 
     packages=find_packages(),
     install_requires=INSTALL_REQUIRES,
