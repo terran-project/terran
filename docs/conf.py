@@ -1,8 +1,22 @@
+import pkg_resources
+import sys
+
 project = 'Terran'
 copyright = '2019, Agustín Azzinnari'
 author = 'Agustín Azzinnari'
 
-release = '0.0.1'
+try:
+    release = pkg_resources.get_distribution('terran').version
+except pkg_resources.DistributionNotFound:
+    print('Terran must be installed to build the documentation.')
+    sys.exit(1)
+
+if 'dev' in release:
+    # Trim everything after `dev`, if present.
+    release = ''.join(release.partition('dev')[:2])
+
+# The short X.Y version.
+version = '.'.join(release.split('.')[:2])
 
 master_doc = 'index'
 
