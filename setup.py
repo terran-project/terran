@@ -37,7 +37,7 @@ if os.environ.get('READTHEDOCS'):
 
 setup(
     name='terran',
-    version='0.0.1',
+    version='0.1.0',
 
     author='Agustín Azzinnari',
     author_email='me@nagitsu.com',
@@ -54,9 +54,9 @@ setup(
         terran=terran:cli
     """,
 
-    python_requires='>=3.5',
+    python_requires='>=3.6',
     classifiers=[
-        'Development Status :: 2 - Pre-Alpha',
+        'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
         'Intended Audience :: Education',
         'Intended Audience :: Science/Research',
