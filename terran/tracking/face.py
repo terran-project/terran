@@ -407,7 +407,7 @@ class Sort:
 
 
 class FaceTracking:
-    """Main entry-point for performing tracking.
+    """Object for performing face tracking.
 
     This object is meant to be used as a substitute to a `Detection` object,
     behaving exactly the same way except for having an extra `track` field in
