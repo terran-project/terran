@@ -220,16 +220,20 @@ def draw_marker(ctx, coords, color=(255, 0, 0), scale=1):
 def vis_faces(ctx, faces, scale=1.0):
     """Draw boxes over the detected faces for the given image.
 
-    Paramters
-    ---------
-    image : np.ndarray representing an image.
+    Parameters
+    ----------
+    image : np.ndarray representing an image
         Image to draw faces over.
-    faces : dict or list of dicts, as returned by `face_detection`
+    faces : dict or list of dicts (from `face_detection` or `face_tracking`)
         Faces to draw on `image`. The expected format is the one returned from
-        `face_detection`, with two optional extra fields:
-        * `text` (str): Text to be written next to the box
-        * `name` (str): Name associated to the face, in order to make the color
-          used for the box fixed.
+        `face_detection` or `face_tracking`, with two optional extra fields:
+
+        - ``text`` (str): Text to be written next to the box.
+        - ``name`` (str): Name associated to the face, in order to make the
+          color used for the box fixed.
+
+        If available, the ``track`` field will be used as the default value
+        for the two values above, if they aren't specified.
 
     Returns
     -------
@@ -238,15 +242,24 @@ def vis_faces(ctx, faces, scale=1.0):
 
     """
     for face in faces:
-        color = map(lambda x: x / 255, FACE_COLORMAP(face.get('name')))
+        # Get the name and text for the current face.
+        face_name = face.get('name') or face.get('track')
+        if face.get('text') is not None:
+            face_text = face['text']
+        elif face.get('track') is not None:
+            face_text = f"#{face['track']}"
+        else:
+            face_text = None
+
+        color = map(lambda x: x / 255, FACE_COLORMAP(face_name))
         draw_marker(ctx, face['bbox'], color=color, scale=scale)
 
-        if face.get('text'):
+        if face_text is not None:
             ctx.move_to(
                 face['bbox'][0] + 3 * scale,
                 face['bbox'][1] + 15 * scale
             )
-            ctx.show_text(face['text'])
+            ctx.show_text(face_text)
 
 
 POSE_CONNECTIONS = [
@@ -377,8 +390,8 @@ def draw_limbs(ctx, keypoints, scale=1.0):
 def vis_poses(ctx, poses, scale=1.0):
     """Draw boxes over the detected poses for the given image.
 
-    Paramters
-    ---------
+    Parameters
+    ----------
     image : np.ndarray representing an image.
         Image to draw faces over.
     poses : dict or list of dicts, as returned by `pose_estimation`
