@@ -42,7 +42,7 @@ def iou(bbox_1, bbox_2):
 def corners_to_center(bbox):
     """Changes bounding box from corner-based specification to center-based.
 
-    Paramters
+    Parameters
     ---------
     bbox : np.ndarray
         Bounding box of the form (x_min, y_min, x_max, y_max).
@@ -70,7 +70,7 @@ def corners_to_center(bbox):
 def center_to_corners(bbox):
     """Changes bounding box from corner-based specification to center-based.
 
-    Paramters
+    Parameters
     ---------
     bbox : np.ndarray
         Bounding box of the form (x, y, area, ratio).
@@ -102,6 +102,7 @@ class KalmanTracker:
     ratio, and assumes a constant velocity of the box, and a constant ratio for
     the faces: we don't try to estimate the velocity of the ratio, as it's
     bound to be incorrect in a very short time.
+
     """
 
     # Count of all trackers instantiated, to keep ascending names for tracks.
@@ -156,18 +157,29 @@ class KalmanTracker:
         KalmanTracker.count += 1
 
     def update(self, face):
-        """Updates the state vector with observed face."""
+        """Updates the state vector with observed face.
+
+        Parameters
+        ----------
+        face : dict
+            Face to update the tracker with, an observation that's already been
+            assigned to the predicted trajectory of the tracker.
+
+        """
         self.time_since_update = 0
         self.hits += 1
         self.kf.update(corners_to_center(face['bbox']))
 
     def predict(self):
-        """Advances the state vector and returns the face with predicted
-        bounding box estimate.
+        """Advances the state vector and returns the predicted bounding box
+        estimate.
 
         Returns
         -------
-        TODO
+        np.ndarray
+            Predicted trajectory of the tracker, in (x_min, y_min, x_max,
+            y_max) format.
+
         """
         # If the size of the bounding box is negative, nullify the velocity.
         if (self.kf.x[6] + self.kf.x[2]) <= 0:
@@ -252,9 +264,9 @@ def associate_detections_to_trackers(faces, trackers, iou_threshold=0.3):
 class Sort:
     """SORT tracker for very simple, appearence-agnostic tracking.
 
-    Implements a tracker based on `Simple Online and Realtime Tracking`_
-    focused on building *face tracks* out of detections (thus performing
-    tracking-by-detection).
+    Implements a multiple object tracker based on `Simple Online and Realtime
+    Tracking`_ focused on building *face tracks* out of detections (thus
+    performing tracking-by-detection).
 
     The tracking performed by this class has only one objective: attach an
     identity to every detection passed to it, or `None` if no identity was
@@ -273,16 +285,29 @@ class Sort:
     """
 
     def __init__(self, max_age=1, min_hits=3, return_unmatched=False):
-        """
-        expl
+        """Initialize SORT instance with its configuration.
+
+        The recommended way of setting the time-based parameters is with
+        respect to the framerate of the video.
+
+        Parameters
+        ----------
+        max_age : int
+            Maximum number of steps after which an unmatched tracker is going
+            to be destroyed.
+        min_hits : int
+            Minimum number of steps until a tracker is considered confirmed
+            (and thus, its identity returned in faces).
         return_unmatched : bool
-            Whether to return faces with no identity (default: False).
+            Whether to return faces with no track attached (default: False).
+
         """
         self.max_age = max_age
         self.min_hits = min_hits
+        self.return_unmatched = return_unmatched
+
         self.trackers = []
         self.frame_count = 0
-        self.return_unmatched = return_unmatched
 
     def update(self, faces):
         """Update the tracker with new faces.
@@ -382,12 +407,49 @@ class Sort:
 
 
 class FaceTracking:
+    """Main entry-point for performing tracking.
 
-    def __init__(self, detector=None, sort=None):
+    This object is meant to be used as a substitute to a `Detection` object,
+    behaving exactly the same way except for having an extra `track` field in
+    the face dictionaries.
+
+    The object will only encapsulate and call the detector and tracker objects
+    used, offer a :meth:`__call__`-based interface. That is, it's simply a
+    container for the main :class:`Sort` class.
+
+    """
+
+    def __init__(self, detector=None, tracker=None):
         self.detector = detector
-        self.sort = sort
+        self.tracker = tracker
 
     def __call__(self, frames):
+        """Performs face tracking on `images`.
+
+        The face detection itself will be done by the `self.detector` object,
+        while the tracking by the `self.tracker` object.
+
+        Parameters
+        ----------
+        frames : list of numpy.ndarray or numpy.ndarray
+            Frames to perform face tracking on.
+
+        Returns
+        -------
+        list of list of dicts, or list dict
+            List of dictionaries containing face data for a single image, or a
+            list of these entries thereof.
+
+            Each entry is of the form::
+
+                {
+                    'bbox': [x_min, y_min, x_max, y_max],
+                    'landmarks': ...,  # Array of shape (5, 2).
+                    'track': ...,  # Either an `int` or `None`.
+                    'score': ... # Confidence score.
+                }
+
+        """
         expanded = False
         if not isinstance(frames, list) and len(frames.shape) == 3:
             expanded = True
@@ -397,7 +459,7 @@ class FaceTracking:
         detections_per_frame = self.detector(frames)
         for frame, detections in zip(frames, detections_per_frame):
             faces_per_frame.append(
-                self.sort.update(detections)
+                self.tracker.update(detections)
             )
 
         return faces_per_frame[0] if expanded else faces_per_frame
@@ -407,6 +469,53 @@ def face_tracking(
     *, video=None, max_age=None, min_hits=None, detector=None,
     return_unmatched=False,
 ):
+    """Default entry point to face tracking.
+
+    This is a factory for an underlying :class:`FaceTracking` instance,
+    which will be tasked with keeping the state of the different identities
+    available.
+
+    Once you create it, you can treat the resulting object as if it was an
+    instance of the :class:`terran.face.detection.Detection` class, but focused
+    on working in same-size batches of frames, and returning an additional
+    field on the faces corresponding to the identity, or track.
+
+    The tracking utilities provided focus on filtering observations *only*.
+    No smoothing nor interpolation will be performed, so the results you
+    obtained can be traced back to detections of the detector passed on to it.
+    This is meant as a building block from which to do more detailed face
+    recognition over videos.
+
+    Parameters
+    ----------
+    video : terran.io.reader.Video
+        Video to derive `max_age` and `min_hits` from. The first value will be
+        one video of the second, while the latter will be 1/5th of a second.
+
+        When those values are specified as well, they'll have precedence.
+    max_age : int
+        Maximum number of frames to keep identities around for after no
+        appearance.
+    min_hits : int
+        Minimum number of observations required for an identity to be returned.
+
+        For instance, if `min_hits` is 6, it means that only after a face is
+        detected six times will it be returned on prediction. This is, in
+        essence, adding *latency* to the predictions. So consider decreasing
+        this value if you care more about latency than any possible noise you
+        may get due to short-lived faces.
+
+        You can also get around this latency by specifying `return_unmatched`
+        value of `True`, but in that case, returned faces will *not* have an
+        identity associated.
+    detector : terran.face.detection.Detection
+        Face detector to get observations from. Default is using Terran's
+        default face detection class.
+    return_unmatched : boolean
+        Whether to return observations (faces) that don't have a matched
+        identity or not.
+
+    """
     # Default values for SORT assume a 30 fps video.
     max_age_ = 30
     min_hits_ = 6
@@ -437,4 +546,4 @@ def face_tracking(
         return_unmatched=return_unmatched,
     )
 
-    return FaceTracking(detector=detector, sort=sort)
+    return FaceTracking(detector=detector, tracker=sort)
