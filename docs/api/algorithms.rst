@@ -33,3 +33,12 @@ terran.pose
 .. autoclass:: terran.pose.Keypoint
   :members:
   :undoc-members:
+
+terran.tracking.face
+--------------------
+
+.. automodule:: terran.tracking.face
+  :members: face_tracking
+
+.. autoclass:: terran.tracking.face.FaceTracking
+  :members: __call__
