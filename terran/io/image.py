@@ -53,9 +53,9 @@ def open_image(uri):
 
 
 def resolve_images(path, batch_size=None):
-    """Collects the path for all images under `path`, returning them by batches.
+    """Collects the paths of all images under `path`, yielding them in batches.
 
-    Validates that the image is valid before returning it by attempting to open
+    Ensures that the image is valid before returning it by attempting to open
     it with PIL.
 
     Parameters
@@ -66,7 +66,8 @@ def resolve_images(path, batch_size=None):
     Yields
     ------
     pathlib.Path or [pathlib.Path]
-        Path to every valid image found under `path`.
+        Path to every valid image found under `path`. If `batch_size` is
+        `None`, will return a single `pathlib.Path`. Otherwise, returns a list.
 
     """
     if not isinstance(path, Path):
