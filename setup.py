@@ -11,6 +11,7 @@ with open('README.md', 'r') as f:
 INSTALL_REQUIRES = [
     'click',
     'ffmpeg-python',
+    'filterpy',
     'lycon',
     'numpy',
     'pycairo',
