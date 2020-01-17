@@ -92,7 +92,7 @@ def center_to_corners(bbox):
     ])
 
 
-class KalmanBoxTracker:
+class KalmanTracker:
     """Tracker for individual face.
 
     Maintains an internal state by way of a Kalman filter applied to the face's
@@ -149,55 +149,34 @@ class KalmanBoxTracker:
 
         self.kf.x[:4] = corners_to_center(face['bbox'])
 
-        self.time_since_update = 0
-        self.id = KalmanBoxTracker.count
-
-        KalmanBoxTracker.count += 1
-
-        self.history = []
         self.hits = 0
-        self.hit_streak = 0
-        self.age = 0
+        self.time_since_update = 0
+
+        self.id = KalmanTracker.count
+        KalmanTracker.count += 1
 
     def update(self, face):
         """Updates the state vector with observed face."""
         self.time_since_update = 0
-        self.history = []
         self.hits += 1
-        self.hit_streak += 1
         self.kf.update(corners_to_center(face['bbox']))
 
     def predict(self):
         """Advances the state vector and returns the face with predicted
         bounding box estimate.
+
+        Returns
+        -------
+        TODO
         """
         # If the size of the bounding box is negative, nullify the velocity.
         if (self.kf.x[6] + self.kf.x[2]) <= 0:
             self.kf.x[6] *= 0.0
 
         self.kf.predict()
-
-        self.age += 1
-
-        # TODO: I think it's better this way; we want to show face even if it
-        # wasn't detected at this particular frame.
-        # if self.time_since_update > 0:
-        #     self.hit_streak = 0
         self.time_since_update += 1
 
-        self.history.append(center_to_corners(self.kf.x))
-
-        return self.history[-1]
-
-    def get_state(self):
-        """Returns the face with the current bounding box estimate."""
-        face = {
-            'bbox': center_to_corners(self.kf.x),
-            'name': self.id,
-            'text': f'#{self.id}',
-        }
-
-        return face
+        return center_to_corners(self.kf.x)
 
 
 def associate_detections_to_trackers(faces, trackers, iou_threshold=0.3):
@@ -215,7 +194,7 @@ def associate_detections_to_trackers(faces, trackers, iou_threshold=0.3):
     Returns
     -------
     list of np.ndarray
-        Matches, unmatched faces and unmatched trackers.
+        Matched, unmatched faces and unmatched trackers.
 
     """
 
@@ -293,12 +272,17 @@ class Sort:
 
     """
 
-    def __init__(self, max_age=1, min_hits=3, keep_showing_for=5):
+    def __init__(self, max_age=1, min_hits=3, return_unmatched=False):
+        """
+        expl
+        return_unmatched : bool
+            Whether to return faces with no identity (default: False).
+        """
         self.max_age = max_age
         self.min_hits = min_hits
-        self.keep_showing_for = keep_showing_for
         self.trackers = []
         self.frame_count = 0
+        self.return_unmatched = return_unmatched
 
     def update(self, faces):
         """Update the tracker with new faces.
@@ -314,7 +298,12 @@ class Sort:
         Returns
         -------
         list of dicts
-            List of faces, similar to input, but only for the tracked faces.
+            Same list of face dicts, but with an extra `track` field specifying
+            the identity of the face. This field will either be `None` if the
+            face wasn't matched to any underlying track, or an `int` if it was.
+
+            If `self.return_unmatched` is `False`, all faces will have a
+            `track`, or else they'll get filtered.
 
         """
         self.frame_count += 1
@@ -342,6 +331,9 @@ class Sort:
             matched, unmatched_faces, unmatched_tracks
         ) = associate_detections_to_trackers(faces, tracks)
 
+        # Faces to return, augmented with the track ID, whenever available.
+        augmented_faces = []
+
         # Update matched trackers with assigned detections.
         for track_idx, track in enumerate(self.trackers):
             if track_idx not in unmatched_tracks:
@@ -350,30 +342,43 @@ class Sort:
                 )
                 track.update(faces[face_idx])
 
+                # Add the track ID to the `track` field only if the track has
+                # been confirmed.
+                track_id = track.id if (
+                    track.hits >= self.min_hits
+                    or self.frame_count <= self.min_hits
+                ) else None
+
+                augmented_faces.append(
+                    {'track': track_id, **faces[face_idx]}
+                )
+
         # Create and initialize new trackers for unmatched detections.
         for face_idx in unmatched_faces:
-            track = KalmanBoxTracker(faces[face_idx])
+            track = KalmanTracker(faces[face_idx])
             self.trackers.append(track)
 
-        tracked_faces = []
-        for track_idx, track in reversed(list(enumerate(self.trackers))):
-            face = track.get_state()
-
-            should_return = (
-                track.time_since_update <= self.keep_showing_for
-            ) and (
-                track.hit_streak >= self.min_hits
-                or self.frame_count <= self.min_hits
+            # Just created: only case we should return it right away is if
+            # there are no minimum amount of hits required.
+            track_id = track.id if self.min_hits == 0 else None
+            augmented_faces.append(
+                {'track': track_id, **faces[face_idx]}
             )
 
-            if should_return:
-                tracked_faces.append(face)
+        # Filter out the faces without a confirmed tracker attached.
+        if not self.return_unmatched:
+            augmented_faces = [
+                face for face in augmented_faces
+                if face['track'] is not None
+            ]
 
-            # Remove dead tracks.
-            if track.time_since_update > self.max_age:
-                self.trackers.pop(track_idx)
+        # Finally, clean up dead tracks.
+        self.trackers = [
+            track for track in self.trackers
+            if track.time_since_update <= self.max_age
+        ]
 
-        return tracked_faces
+        return augmented_faces
 
 
 class FaceTracking:
@@ -399,28 +404,23 @@ class FaceTracking:
 
 
 def face_tracking(
-    *, video=None, max_age=None, min_hits=None, keep_showing_for=None,
-    detector=None,
+    *, video=None, max_age=None, min_hits=None, detector=None,
+    return_unmatched=False,
 ):
-
     # Default values for SORT assume a 30 fps video.
     max_age_ = 30
     min_hits_ = 6
-    keep_showing_for_ = 5
 
     # If we receive a video or any of the parameters are specified, substitute
     # the defaults.
     if video is not None:
         max_age_ = video.framerate
         min_hits_ = video.framerate // 5
-        keep_showing_for_ = video.framerate // 6
 
     if max_age is None:
         max_age = max_age_
     if min_hits is None:
         min_hits = min_hits_
-    if keep_showing_for is None:
-        keep_showing_for = keep_showing_for_
 
     # Validate that we received a valid detector, or fall back to the default
     # one if none was specified.
@@ -434,7 +434,7 @@ def face_tracking(
     sort = Sort(
         max_age=video.framerate,
         min_hits=video.framerate // 5,
-        keep_showing_for=video.framerate // 6,
+        return_unmatched=return_unmatched,
     )
 
     return FaceTracking(detector=detector, sort=sort)
