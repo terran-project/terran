@@ -31,7 +31,7 @@ autoclass_content = 'both'
 # Mock dependencies that have C-extensions.
 autodoc_mock_imports = [
     'cairo',
-    'lycon'
+    'opencv-python'
 ]
 
 templates_path = ['_templates']

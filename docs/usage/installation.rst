@@ -20,6 +20,13 @@ Terran makes use of `FFmpeg <https://www.ffmpeg.org>`_ in order to provide
 I/O-related functions for videos. As such, make sure you have it installed as a
 system dependency if you want to run predictions on videos.
 
+OpenCV
+^^^^^^
+
+Terran will use `OpenCV <https://docs.opencv.org/master/>` to efficiently resize images and
+considerably accelerate the face tracking process. Make sure you have all system dependencies to
+install OpenCV correctly on your machine.
+
 Cairo
 ^^^^^
 
