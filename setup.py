@@ -38,7 +38,7 @@ if os.environ.get('READTHEDOCS'):
 
 setup(
     name='terran',
-    version='0.1.1-dev',
+    version='0.1.2-dev',
 
     author='Agustín Azzinnari',
     author_email='me@nagitsu.com',

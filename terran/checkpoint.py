@@ -3,6 +3,7 @@ import importlib
 import os
 import requests
 import shutil
+import sys
 import tempfile
 
 from itertools import groupby
@@ -46,7 +47,7 @@ CHECKPOINTS = [
         },
 
         'url': (
-            'https://github.com/nagitsu/terran/releases/download/v0.0.1-alpha/'
+            'https://github.com/nagitsu/terran/releases/download/0.0.1/'
             'retinaface-mnet.pth'
         )
     },
@@ -70,7 +71,7 @@ CHECKPOINTS = [
         },
 
         'url': (
-            'https://github.com/nagitsu/terran/releases/download/v0.0.1-alpha/'
+            'https://github.com/nagitsu/terran/releases/download/0.0.1/'
             'arcface-resnet100.pth'
         )
     },
@@ -95,7 +96,7 @@ CHECKPOINTS = [
         },
 
         'url': (
-            'https://github.com/nagitsu/terran/releases/download/v0.0.1-alpha/'
+            'https://github.com/nagitsu/terran/releases/download/0.0.1/'
             'openpose-body.pth'
         )
     },
@@ -302,21 +303,21 @@ def get_checkpoint_path(model_class_path, prompt=True):
     """
     db = read_checkpoint_db()
     checkpoint = get_checkpoint_by_class(db, model_class_path)
+    can_prompt = sys.stdout.isatty()
 
     if not checkpoint:
         # No checkpoint found.
         raise ValueError('Checkpoint not found.')
 
-    if prompt and checkpoint['status'] == 'NOT_DOWNLOADED':
-        # Checkpoint hasn't been downloaded yet. Prompt for downloading it
-        # before continuing.
-        click.confirm(
-            'Checkpoint not present locally. Want to download it?', abort=True
-        )
+    if checkpoint['status'] == 'NOT_DOWNLOADED':
+        if prompt and can_prompt:
+            # Checkpoint hasn't been downloaded yet. Prompt for downloading it
+            # before continuing.
+            click.confirm(
+                'Checkpoint not present locally. Want to download it?', abort=True
+            )
+
         download_remote_checkpoint(db, checkpoint)
-    elif checkpoint['status'] == 'NOT_DOWNLOADED':
-        # Not downloaded but didn't prompt.
-        raise ValueError('Checkpoint not downloaded.')
 
     # `local_path` is now present in the checkpoint, as
     # `download_remote_checkpoint` will have modified it if it was just
@@ -343,6 +344,10 @@ def download_remote_checkpoint(db, checkpoint):
 
     # Start the actual file download.
     response = requests.get(checkpoint['url'], stream=True)
+
+    if response.status_code != 200:
+        raise ValueError(f'Invalid checkpoint URL {checkpoint["url"]}')
+
     length = int(response.headers.get('Content-Length'))
     chunk_size = 16 * 1024
     progressbar = click.progressbar(
