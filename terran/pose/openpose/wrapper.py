@@ -1,8 +1,7 @@
 import numpy as np
-import lycon
 import torch
 
-from lycon import resize
+from cv2 import resize, INTER_LINEAR
 
 from terran import default_device
 from terran.checkpoint import get_checkpoint_path
@@ -100,9 +99,10 @@ def resize_images(images, short_side=416):
     )
     for idx, image in enumerate(images):
         resize(
-            image, output=resized[idx],
-            width=new_size[0], height=new_size[1],
-            interpolation=lycon.Interpolation.LINEAR
+            src=image,
+            dst=resized[idx],
+            dsize=new_size,
+            interpolation=INTER_LINEAR,
         )
 
     return resized, scale

@@ -1,8 +1,7 @@
-import lycon
 import math
 import numpy as np
 
-from lycon import resize
+from cv2 import resize, INTER_LINEAR
 
 from terran import default_device
 from terran.checkpoint import get_class_for_checkpoint
@@ -32,9 +31,10 @@ def resize_factory(short_side=416):
             )
             for idx, image in enumerate(images):
                 resize(
-                    image, output=resized[idx],
-                    width=new_size[0], height=new_size[1],
-                    interpolation=lycon.Interpolation.LINEAR
+                    src=image,
+                    dst=resized[idx],
+                    dsize=new_size,
+                    interpolation=INTER_LINEAR
                 )
             scales = scale
         else:
@@ -47,8 +47,9 @@ def resize_factory(short_side=416):
 
                 resized.append(
                     resize(
-                        image, width=new_size[0], height=new_size[1],
-                        interpolation=lycon.Interpolation.LINEAR
+                        src=image,
+                        dsize=new_size,
+                        interpolation=INTER_LINEAR
                     )
                 )
                 scales.append(scale)

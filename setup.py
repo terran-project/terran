@@ -12,12 +12,12 @@ INSTALL_REQUIRES = [
     'click',
     'ffmpeg-python',
     'filterpy',
-    'lycon',
+    'opencv-python-headless',
     'numpy',
     'pycairo',
     'requests',
     'scikit-image',
-    'sklearn',
+    'scikit-learn>=0.21',
     'torch',
     'torchvision',
 ]
@@ -27,7 +27,7 @@ INSTALL_REQUIRES = [
 # list should match `autodoc_mock_imports` in `docs/conf.py`, but with the
 # package names instead of the top-level modules.
 MOCKED_IN_DOCS = [
-    'lycon',
+    'opencv-python',
     'pycairo',
 ]
 
@@ -38,8 +38,7 @@ if os.environ.get('READTHEDOCS'):
 
 setup(
     name='terran',
-    version='0.1.2-dev',
-
+    version='0.1.1-dev',
     author='Agustín Azzinnari',
     author_email='me@nagitsu.com',
     description='A human perception library',

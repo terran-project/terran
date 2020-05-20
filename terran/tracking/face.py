@@ -1,9 +1,14 @@
 import numpy as np
 
 from filterpy.kalman import KalmanFilter
-from sklearn.utils.linear_assignment_ import linear_assignment
+from scipy.optimize import linear_sum_assignment
 
 from terran.face.detection import Detection, face_detection
+
+
+def linear_assignment(cost_matrix):
+    """Implement the linear assignment as in Scikit Learn v0.21"""
+    return np.transpose(np.asarray(linear_sum_assignment(cost_matrix)))
 
 
 def iou(bbox_1, bbox_2):
