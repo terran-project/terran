@@ -1,12 +1,11 @@
 import numpy as np
-import math
 import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
 from terran.pose import Keypoint
 from terran.vis import (
-    FACE_COLORMAP, MARKER_SCALES, POSE_CONNECTIONS, POSE_CONNECTION_COLORS,
+    FACE_COLORMAP, POSE_CONNECTIONS, POSE_CONNECTION_COLORS,
     POSE_KEYPOINT_COLORS,
 )
 
@@ -133,5 +132,66 @@ def vis_faces(image, faces, scale=1.0):
             draw_label(
                 draw, face['bbox'][:2], face_text, color, scale=scale
             )
+
+    return np.asarray(image)
+
+
+def draw_keypoints(draw, keypoints, scale=1.0):
+    scale = int(scale * 4)
+
+    for keypoint in keypoints:
+        for idx, (x, y, is_present) in enumerate(keypoint['keypoints']):
+            if not is_present:
+                continue
+
+            color = tuple(POSE_KEYPOINT_COLORS[Keypoint(idx)]) + (225,)
+            draw.ellipse([
+                x - int(3 * scale / 2), y - int(3 * scale / 2),
+                x + int(3 * scale / 2), y + int(3 * scale / 2),
+            ], fill=color)
+
+
+def draw_limbs(draw, keypoints, scale=1.0):
+    scale = int(scale * 8)
+
+    for keypoint in keypoints:
+        kps = keypoint['keypoints']
+        for idx, (conn_src, conn_dst) in enumerate(POSE_CONNECTIONS):
+            x_src, y_src, src_present = kps[conn_src.value]
+            x_dst, y_dst, dst_present = kps[conn_dst.value]
+
+            # Ignore limbs for which one of the keypoints is missing.
+            if not (src_present and dst_present):
+                continue
+
+            color = tuple(POSE_CONNECTION_COLORS[idx]) + (180,)
+            draw.line([x_src, y_src, x_dst, y_dst], fill=color, width=scale)
+
+
+def vis_poses(image, poses, scale=1.0):
+    """Draw boxes over the detected poses for the given image.
+
+    Parameters
+    ----------
+    image : np.ndarray representing an image.
+        Image to draw faces over.
+    poses : dict or list of dicts, as returned by `pose_estimation`
+        Poses to draw on `image`. The expected format is the one returned from
+        `pose_estimation`.
+
+    Returns
+    -------
+    np.ndarray
+        Copy of `image` with the poses drawn over.
+
+    """
+    if not (isinstance(poses, list) or isinstance(poses, tuple)):
+        poses = [poses]
+
+    image = Image.fromarray(image)
+    draw = ImageDraw.Draw(image, 'RGBA')
+
+    draw_limbs(draw, poses, scale=scale)
+    draw_keypoints(draw, poses, scale=scale)
 
     return np.asarray(image)
