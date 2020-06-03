@@ -14,7 +14,7 @@ INSTALL_REQUIRES = [
     'filterpy',
     'opencv-python-headless',
     'numpy',
-    'pycairo',
+    'Pillow',
     'requests',
     'scikit-image',
     'scikit-learn>=0.21',
@@ -28,7 +28,6 @@ INSTALL_REQUIRES = [
 # package names instead of the top-level modules.
 MOCKED_IN_DOCS = [
     'opencv-python',
-    'pycairo',
 ]
 
 if os.environ.get('READTHEDOCS'):
@@ -48,6 +47,9 @@ setup(
 
     packages=find_packages(),
     install_requires=INSTALL_REQUIRES,
+    extras_requires={
+        'cairo': ['pycairo'],
+    },
 
     entry_points="""
         [console_scripts]

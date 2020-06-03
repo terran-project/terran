@@ -2,7 +2,7 @@ import pkg_resources
 import sys
 
 project = 'Terran'
-copyright = '2019, Agustín Azzinnari'
+copyright = '2020, Agustín Azzinnari'
 author = 'Agustín Azzinnari'
 
 try:
@@ -30,7 +30,6 @@ autoclass_content = 'both'
 
 # Mock dependencies that have C-extensions.
 autodoc_mock_imports = [
-    'cairo',
     'opencv-python'
 ]
 

@@ -37,6 +37,9 @@ terran.pose
 terran.tracking.face
 --------------------
 
+.. ATTENTION::
+  This feature is experimental and subject to change.
+
 .. automodule:: terran.tracking.face
   :members: face_tracking
 

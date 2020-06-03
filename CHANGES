@@ -1,4 +1,8 @@
 Version 0.1.1 (Not released)
+- Use Pillow as fallback for visualizations when Cairo isn't present.
+- Replace Lycon with OpenCV.
+- Fix checkpoints download.
+- Add experimental face tracking.
 
 Version 0.1 (2019-12-28)
 - Initial release.

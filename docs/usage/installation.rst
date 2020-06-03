@@ -30,11 +30,12 @@ install OpenCV correctly on your machine.
 Cairo
 ^^^^^
 
-Visualization functions can leverage `Cairo <https://www.cairographics.org/>`_
-to draw the visualization graphics, making them better-looking. When Cairo is
-not present, it will use ``PIL`` as fallback.
+By default, Terran will use `Pillow <https://pillow.readthedocs.io/>`_ to draw visualizations, but
+it can also can also leverage `Cairo <https://www.cairographics.org/>`_ when present, making the
+graphics better-looking. You can either install the ``pycairo`` package yourself or explicitly
+install the dependency with::
 
-(TODO: Show difference between the two.)
+  pip install terran[cairo]
 
 feh
 ^^^

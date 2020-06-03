@@ -64,6 +64,13 @@ To install, run:
 pip install terran
 ```
 
+Or, if you want better-looking visualizations and have [Cairo](https://cairographics.org/)
+installed, you can go with:
+
+```bash
+pip install terran[cairo]
+```
+
 If you require a particular Pytorch version (e.g. you're using a specific CUDA
 version), be sure to install it beforehand.
 
