@@ -1,3 +1,5 @@
+Version 0.1.2 (Not released)
+
 Version 0.1.1 (2020-07-06)
 - Use Pillow as fallback for visualizations when Cairo isn't present.
 - Replace Lycon with OpenCV.
