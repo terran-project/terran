@@ -1,17 +1,9 @@
-import click
-import torch
+# flake8: noqa
+from terran.defaults import default_device
 
-from terran.checkpoint import checkpoint_cmd
+from terran.face import extract_features, face_detection
+from terran.pose import pose_estimation
 
+from terran.io import open_image, open_video
 
-default_device = (
-    torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-)
-
-
-@click.group()
-def cli():
-    pass
-
-
-cli.add_command(checkpoint_cmd)
+from terran.vis import display_image, vis_faces, vis_poses

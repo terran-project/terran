@@ -53,7 +53,7 @@ setup(
 
     entry_points="""
         [console_scripts]
-        terran=terran:cli
+        terran=terran.cli:cli
     """,
 
     python_requires='>=3.6',
