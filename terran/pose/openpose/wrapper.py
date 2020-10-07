@@ -64,14 +64,19 @@ def get_keypoints(peaks_by_id, humans, scale=1.0):
 
     """
     detections = []
+
+    if torch.is_tensor(peaks_by_id):
+        peaks_by_id = peaks_by_id.cpu().numpy()
+
     for human in humans:
         keypoints = np.zeros((18, 3), dtype=np.int32)
         for j in range(18):
             peak_id = np.int32(human[j])
             if peak_id != -1:
                 y, x = peaks_by_id[peak_id][:2]
-                y = (y.cpu().numpy() / scale).astype(np.int32)
-                x = (x.cpu().numpy() / scale).astype(np.int32)
+
+                y = (y / scale).astype(np.int32)
+                x = (x / scale).astype(np.int32)
                 keypoints[j] = (x, y, 1)
 
         # Average keypoint score: sum of scores over number of keypoints.
