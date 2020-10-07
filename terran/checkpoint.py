@@ -313,9 +313,12 @@ def get_checkpoint_path(model_class_path, prompt=True):
         if prompt and can_prompt:
             # Checkpoint hasn't been downloaded yet. Prompt for downloading it
             # before continuing.
-            click.confirm(
-                'Checkpoint not present locally. Want to download it?', abort=True
-            )
+            try:
+                click.confirm(
+                    'Checkpoint not present locally. Want to download it?', abort=True
+                )
+            except Exception:
+                click.echo('Checkpoint not present locally. Downloading it')
 
         download_remote_checkpoint(db, checkpoint)
 

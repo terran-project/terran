@@ -405,6 +405,8 @@ class Video:
                         stream_info = ydl.extract_info(
                             self.path, download=False
                         )
+                        self.ydl_info = stream_info
+
                         if stream_info['url'] is None:
                             raise ValueError(
                                 'Unable to find stream URL for video format '
