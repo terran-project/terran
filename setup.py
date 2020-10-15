@@ -37,7 +37,7 @@ if os.environ.get('READTHEDOCS'):
 
 setup(
     name='terran',
-    version='0.1.2-dev',
+    version='0.1.2',
     author='Agustín Azzinnari',
     author_email='me@nagitsu.com',
     description='A human perception library',

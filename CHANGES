@@ -1,4 +1,6 @@
-Version 0.1.2 (Not released)
+Version 0.1.2 (2020-10-15)
+- Expose more functions as top-level exports.
+- Fix OpenPose CPU operations issue.
 
 Version 0.1.1 (2020-07-06)
 - Use Pillow as fallback for visualizations when Cairo isn't present.
